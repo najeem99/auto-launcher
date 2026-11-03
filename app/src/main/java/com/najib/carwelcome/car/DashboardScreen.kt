@@ -44,7 +44,7 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
                         if (!Welcome.toggleDua(carContext)) {
                             CarToast.makeText(
                                 carContext,
-                                "Add your Dua al-Safar recording in Najeem Drive on your phone",
+                                "Couldn't play Dua al-Safar",
                                 CarToast.LENGTH_LONG
                             ).show()
                         }

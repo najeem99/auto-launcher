@@ -8,16 +8,25 @@ import android.media.MediaPlayer
 import java.io.File
 
 /**
- * Plays the Dua al-Safar recording you added in the phone app and works out which
- * line is being recited, so the car screen can show it like lyrics.
+ * Plays Dua al-Safar (the recording built into the app, or one you added in the
+ * phone app) and works out which line is being recited, so the car screen can
+ * show it like lyrics.
  */
 object DuaPlayer {
     private var player: MediaPlayer? = null
     private var focus: AudioFocusRequest? = null
     private var onEnd: (() -> Unit)? = null
 
+    /**
+     * Start of each line in the built-in recording (ms). Found from the reciter's
+     * breathing pauses: takbirs, "wa inna ila rabbina", "Allahumma inna nas'aluka",
+     * "Allahumma hawwin", "Allahumma antas-sahib", "Allahumma inni a'udhu bika".
+     */
+    private val BUILT_IN_STARTS = listOf(0, 21_900, 24_500, 32_000, 36_200, 41_600)
+
+    /** A recording you added in the phone app; replaces the built-in one. */
     fun file(context: Context) = File(context.filesDir, "dua_al_safar.audio")
-    fun hasRecording(context: Context) = file(context).let { it.exists() && it.length() > 0 }
+    fun hasCustomRecording(context: Context) = file(context).let { it.exists() && it.length() > 0 }
 
     val isPlaying: Boolean get() = runCatching { player?.isPlaying == true }.getOrDefault(false)
     val positionMs: Int get() = runCatching { player?.currentPosition ?: 0 }.getOrDefault(0)
@@ -26,8 +35,7 @@ object DuaPlayer {
     /** Starts the recording. Returns false if none has been added yet. */
     fun play(context: Context, onFinished: () -> Unit = {}): Boolean {
         stop()
-        val f = file(context)
-        if (!hasRecording(context)) return false
+        val custom = hasCustomRecording(context)
         val attrs = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -35,7 +43,13 @@ object DuaPlayer {
         val mp = try {
             MediaPlayer().apply {
                 setAudioAttributes(attrs)
-                setDataSource(f.absolutePath)
+                if (custom) {
+                    setDataSource(file(context).absolutePath)
+                } else {
+                    context.resources.openRawResourceFd(R.raw.dua_al_safar).use {
+                        setDataSource(it.fileDescriptor, it.startOffset, it.length)
+                    }
+                }
                 prepare()
             }
         } catch (_: Exception) {
@@ -77,6 +91,7 @@ object DuaPlayer {
      */
     fun lineStarts(context: Context, durationMs: Int): List<Int> {
         Prefs(context).duaTimings?.let { if (it.size == DuaSafar.LINES.size) return it }
+        if (!hasCustomRecording(context)) return BUILT_IN_STARTS
         val weights = DuaSafar.LINES.map { it.arabic.length.toFloat() }
         val total = weights.sum()
         var acc = 0f

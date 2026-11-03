@@ -19,7 +19,6 @@ import android.text.TextUtils
 import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
-import com.najib.carwelcome.DuaPlayer
 import com.najib.carwelcome.DuaSafar
 import com.najib.carwelcome.Prefs
 import com.najib.carwelcome.Weather
@@ -311,7 +310,6 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         val state = when {
             reciting -> "${lineIdx + 1} / ${DuaSafar.LINES.size}"
             Welcome.isGreeting -> "Welcome…"
-            !DuaPlayer.hasRecording(carContext) -> "Add recording on phone"
             else -> "Tap Dua to play"
         }
         val stateW = text.measureText(state)

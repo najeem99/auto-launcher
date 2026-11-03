@@ -86,7 +86,7 @@ class MainActivity : AppCompatActivity() {
         recordingStatus = label("")
         column.addView(recordingStatus)
         column.addView(Button(this).apply {
-            text = "Choose an audio file on this phone"
+            text = "Replace with an audio file on this phone"
             setOnClickListener {
                 startActivityForResult(
                     Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("audio/*"),
@@ -100,6 +100,16 @@ class MainActivity : AppCompatActivity() {
         column.addView(Button(this).apply {
             text = "Download"
             setOnClickListener { download(urlField.text.toString().trim()) }
+        })
+        column.addView(Button(this).apply {
+            text = "Use the built-in recording"
+            setOnClickListener {
+                DuaPlayer.stop()
+                DuaPlayer.file(this@MainActivity).delete()
+                prefs.duaTimings = null
+                toast("Using the built-in recording")
+                refreshStatus()
+            }
         })
         column.addView(Button(this).apply {
             text = "Play / stop"
@@ -127,8 +137,8 @@ class MainActivity : AppCompatActivity() {
         })
         column.addView(syncPanel)
         column.addView(Button(this).apply {
-            text = "Reset to automatic timing"
-            setOnClickListener { prefs.duaTimings = null; toast("Using automatic timing"); refreshStatus() }
+            text = "Reset lyric timing"
+            setOnClickListener { prefs.duaTimings = null; toast("Lyric timing reset"); refreshStatus() }
         })
 
         column.addView(heading("Setup"))
@@ -223,9 +233,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshStatus() {
         recordingStatus.text = when {
-            !DuaPlayer.hasRecording(this) -> "No recording yet. Add one below so the car can play Dua al-Safar."
-            prefs.duaTimings != null -> "Recording added. Lyrics are synced."
-            else -> "Recording added. Lyrics use automatic timing; sync them below for a perfect match."
+            !DuaPlayer.hasCustomRecording(this) && prefs.duaTimings == null ->
+                "Using the built-in recording, with its lyrics already timed. You can replace it below."
+            !DuaPlayer.hasCustomRecording(this) -> "Using the built-in recording, with your own lyric timing."
+            prefs.duaTimings != null -> "Using your own recording. Lyrics are synced."
+            else -> "Using your own recording. Lyrics use automatic timing; sync them below for a perfect match."
         }
     }
 
@@ -248,7 +260,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val PICK_AUDIO = 7
         private const val SETUP_TEXT = """1. Allow location when asked, so the dashboard can show the outside temperature.
-2. Add your Dua al-Safar recording above, then sync the lyrics once.
+2. Dua al-Safar is built in. To use a different recording, add it above and sync the lyrics once.
 3. Android Auto settings: tap "Version" 10 times to turn on developer mode, then three-dot menu > Developer settings > tick "Unknown sources".
 4. In the car, open the app launcher and pick "Najeem Drive"."""
     }

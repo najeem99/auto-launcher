@@ -2,7 +2,7 @@
 
 A launcher-style home screen for Android Auto. When you open it on the car
 screen it says "Welcome back, Najeem" in a female voice, then plays a real
-recording of **Dua al-Safar** while the Arabic words appear line by line, like
+recording of **Dua al-Safar** (built into the app) while the Arabic words appear line by line, like
 lyrics. Nothing else is played or spoken.
 
 The design reference is the HTML mockup published as "Najeem Car Dashboard".
@@ -23,10 +23,11 @@ dashboard is drawn freely to match the mockup. That works when you install the
 APK yourself; the Play Store would not accept it as a navigation app.
 
 The welcome uses Android's text-to-speech with a female English voice. Dua
-al-Safar is never read by text-to-speech: you add a recording in the phone app
-(pick an audio file or paste a direct MP3 link), then tap **Start syncing** and
-tap **Next line** as each line begins so the lyrics match exactly. Without
-syncing, the lines are timed automatically by their length.
+al-Safar is never read by text-to-speech: the app ships with a recording
+(`app/src/main/res/raw/dua_al_safar.m4a`, 52 s) whose line timings were found
+from the reciter's breathing pauses. You can replace it in the phone app (pick
+an audio file or paste a direct MP3 link) and tap **Start syncing**, then
+**Next line** as each line begins, so the lyrics match exactly.
 
 ## Get the APK
 Every push builds on GitHub Actions. Open the **Actions** tab, pick the latest
@@ -34,7 +35,7 @@ Every push builds on GitHub Actions. Open the **Actions** tab, pick the latest
 
 ## Install and set up
 1. Install the APK on the phone and open **Najeem Drive** once. Allow location,
-   add your Dua al-Safar recording and sync the lyrics.
+   and check the welcome with **Test the welcome**.
 2. Android Auto settings: tap **Version** 10 times to unlock developer mode,
    then three-dot menu > **Developer settings** > tick **Unknown sources**.
 3. In the car, open the Android Auto app launcher and pick **Najeem Drive**.
