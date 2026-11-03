@@ -12,6 +12,9 @@
     <!-- A navigation-type car app gets a full screen to draw the dashboard on. -->
     <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
     <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
+    <!-- Trip log: keeps GPS running while another app (Maps) is on the car screen. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <queries>
         <intent>
@@ -23,6 +26,9 @@
         <package android:name="com.microsoft.emmx.dev" />
         <package android:name="com.microsoft.emmx.canary" />
         <package android:name="com.google.android.apps.maps" />
+        <!-- Android Auto, so the app can tell when the phone connects to the car. -->
+        <package android:name="com.google.android.projection.gearhead" />
+        <provider android:authorities="androidx.car.app.connection" />
     </queries>
 
     <application
@@ -40,13 +46,30 @@
             android:value="1" />
 
         <activity
-            android:name=".MainActivity"
-            android:exported="true">
+            android:name=".HomeActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.AppCompat.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:label="Settings" />
+
+        <activity
+            android:name=".drive.TripActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
+
+        <service
+            android:name=".drive.TripService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
         <activity
             android:name=".CheckInSetupActivity"

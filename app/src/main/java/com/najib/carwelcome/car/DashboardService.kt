@@ -12,6 +12,7 @@ import androidx.car.app.Session
 import androidx.car.app.validation.HostValidator
 import com.najib.carwelcome.Weather
 import com.najib.carwelcome.Welcome
+import com.najib.carwelcome.drive.TripRecorder
 
 /** Entry point Android Auto binds to when you open the dashboard on the car screen. */
 class DashboardService : CarAppService() {
@@ -37,6 +38,8 @@ class DashboardSession : Session() {
                 Welcome.carConnected = true
                 ParkedDetector.manualParked = false
                 DriveSpeed.start(carContext)
+                // Android Auto is connected: start (or continue) the trip log.
+                TripRecorder.onCarScreenOpened(carContext)
                 CarConnection(carContext).type.observe(owner) { type ->
                     if (type == CarConnection.CONNECTION_TYPE_NOT_CONNECTED) {
                         Welcome.carConnected = false
@@ -48,6 +51,7 @@ class DashboardSession : Session() {
 
             override fun onDestroy(owner: LifecycleOwner) {
                 DriveSpeed.stop()
+                TripRecorder.onCarScreenClosed(carContext)
                 Welcome.carConnected = false
                 Welcome.stopAll()
             }
