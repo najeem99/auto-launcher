@@ -7,14 +7,21 @@ import android.media.AudioManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Speaks the welcome line through the phone's media audio, which Android Auto
- * sends to the car speakers. Other audio is ducked while it speaks.
+ * Speaks a sequence of lines (English and Arabic) through the phone's media
+ * audio, which Android Auto plays on the car speakers. Other audio is ducked.
  */
 class Greeter(context: Context) : TextToSpeech.OnInitListener {
+
+    /** One spoken line. [fallback] is spoken in English if the phone has no voice for [locale]. */
+    data class Segment(val text: String, val locale: Locale, val fallback: String? = null, val tag: Int = -1)
+
+    interface Listener {
+        fun onSegmentStart(segment: Segment) {}
+        fun onFinished() {}
+    }
+
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val attrs = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -24,10 +31,12 @@ class Greeter(context: Context) : TextToSpeech.OnInitListener {
         .setAudioAttributes(attrs)
         .build()
     private val tts = TextToSpeech(context.applicationContext, this)
-    private val callbacks = ConcurrentHashMap<String, () -> Unit>()
     private var ready = false
     private var failed = false
-    private var pending: Pair<String, () -> Unit>? = null
+    private var pending: Pair<List<Segment>, Listener>? = null
+    private var current: List<Segment> = emptyList()
+    private var listener: Listener? = null
+    private var lastId: String? = null
 
     @Volatile var isSpeaking = false
         private set
@@ -35,42 +44,65 @@ class Greeter(context: Context) : TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status != TextToSpeech.SUCCESS) {
             failed = true
-            pending?.second?.invoke()
+            pending?.second?.onFinished()
             pending = null
             return
         }
-        val langResult = tts.setLanguage(Locale.getDefault())
-        if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-            tts.setLanguage(Locale.US)
-        }
         tts.setAudioAttributes(attrs)
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String) {}
-            override fun onDone(utteranceId: String) = finish(utteranceId)
+            override fun onStart(utteranceId: String) {
+                val index = utteranceId.substringAfterLast('#').toIntOrNull() ?: return
+                current.getOrNull(index)?.let { listener?.onSegmentStart(it) }
+            }
+            override fun onDone(utteranceId: String) { if (utteranceId == lastId) finish() }
             @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String) = finish(utteranceId)
-            override fun onError(utteranceId: String, errorCode: Int) = finish(utteranceId)
+            override fun onError(utteranceId: String) { if (utteranceId == lastId) finish() }
+            override fun onError(utteranceId: String, errorCode: Int) { if (utteranceId == lastId) finish() }
+            override fun onStop(utteranceId: String, interrupted: Boolean) { if (utteranceId == lastId) finish() }
         })
         ready = true
-        pending?.let { (text, done) -> speak(text, done) }
+        pending?.let { (segs, l) -> speakAll(segs, l) }
         pending = null
     }
 
-    /** Speaks [text]; [onDone] runs afterwards (on a background thread) even if speech fails. */
-    fun speak(text: String, onDone: () -> Unit) {
-        if (failed) { onDone(); return }
-        if (!ready) { pending = text to onDone; return }
-        val id = UUID.randomUUID().toString()
-        callbacks[id] = onDone
+    fun speakAll(segments: List<Segment>, l: Listener) {
+        if (failed) { l.onFinished(); return }
+        if (!ready) { pending = segments to l; return }
+        tts.stop()
+        current = segments
+        listener = l
+        lastId = null
+        val run = System.nanoTime()
+        segments.forEachIndexed { i, seg ->
+            val (text, locale) = when {
+                hasVoice(seg.locale) -> seg.text to seg.locale
+                seg.fallback != null -> seg.fallback to Locale.US
+                else -> return@forEachIndexed
+            }
+            tts.setLanguage(locale)
+            val id = "$run#$i"
+            if (tts.speak(text, TextToSpeech.QUEUE_ADD, null, id) == TextToSpeech.SUCCESS) lastId = id
+        }
+        if (lastId == null) { l.onFinished(); return }
         isSpeaking = true
         audioManager.requestAudioFocus(focusRequest)
-        if (tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, id) == TextToSpeech.ERROR) finish(id)
     }
 
-    private fun finish(id: String) {
+    fun stop() {
+        if (!ready) { pending = null; return }
+        tts.stop()
+        finish()
+    }
+
+    private fun hasVoice(locale: Locale) =
+        tts.isLanguageAvailable(locale) >= TextToSpeech.LANG_AVAILABLE
+
+    private fun finish() {
+        if (!isSpeaking) return
         isSpeaking = false
+        lastId = null
         audioManager.abandonAudioFocusRequest(focusRequest)
-        callbacks.remove(id)?.invoke()
+        listener?.onFinished()
     }
 
     fun shutdown() {

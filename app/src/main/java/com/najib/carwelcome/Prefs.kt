@@ -5,40 +5,27 @@ import android.content.Context
 class Prefs(context: Context) {
     private val sp = context.applicationContext.getSharedPreferences("car_welcome", Context.MODE_PRIVATE)
 
-    var greetingText: String
-        get() = sp.getString("greeting", DEFAULT_GREETING) ?: DEFAULT_GREETING
-        set(v) = sp.edit().putString("greeting", v).apply()
+    var name: String
+        get() = sp.getString("name", DEFAULT_NAME)?.ifBlank { DEFAULT_NAME } ?: DEFAULT_NAME
+        set(v) = sp.edit().putString("name", v).apply()
 
-    var greetOnConnect: Boolean
-        get() = sp.getBoolean("greet_on_connect", true)
-        set(v) = sp.edit().putBoolean("greet_on_connect", v).apply()
+    var welcomeOnOpen: Boolean
+        get() = sp.getBoolean("welcome_on_open", true)
+        set(v) = sp.edit().putBoolean("welcome_on_open", v).apply()
 
-    var autoPlayAfterGreeting: Boolean
-        get() = sp.getBoolean("autoplay", true)
-        set(v) = sp.edit().putBoolean("autoplay", v).apply()
+    var reciteDua: Boolean
+        get() = sp.getBoolean("recite_dua", true)
+        set(v) = sp.edit().putBoolean("recite_dua", v).apply()
 
-    var reciterId: String
-        get() = sp.getString("reciter", RECITERS[0].id) ?: RECITERS[0].id
-        set(v) = sp.edit().putString("reciter", v).apply()
+    var use24Hour: Boolean
+        get() = sp.getBoolean("use_24h", false)
+        set(v) = sp.edit().putBoolean("use_24h", v).apply()
 
-    var lastSurah: Int
-        get() = sp.getInt("last_surah", 1).coerceIn(1, 114)
-        set(v) = sp.edit().putInt("last_surah", v).apply()
-
-    /** Surah to start when a drive begins; 0 means continue where playback left off. */
-    var journeySurah: Int
-        get() = sp.getInt("journey_surah", 0).coerceIn(0, 114)
-        set(v) = sp.edit().putInt("journey_surah", v).apply()
-
-    /** The surah a new drive should start from. */
-    val driveStartSurah: Int
-        get() = journeySurah.takeIf { it in 1..114 } ?: lastSurah
-
-    var lastGreetAt: Long
-        get() = sp.getLong("last_greet_at", 0L)
-        set(v) = sp.edit().putLong("last_greet_at", v).apply()
+    var lastWelcomeAt: Long
+        get() = sp.getLong("last_welcome_at", 0L)
+        set(v) = sp.edit().putLong("last_welcome_at", v).apply()
 
     companion object {
-        const val DEFAULT_GREETING = "Welcome Najib"
+        const val DEFAULT_NAME = "Najeem"
     }
 }

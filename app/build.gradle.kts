@@ -30,11 +30,6 @@ android {
 }
 
 dependencies {
-    val media3 = "1.5.1"
-    implementation("androidx.media3:media3-exoplayer:$media3")
-    implementation("androidx.media3:media3-session:$media3")
     implementation("androidx.car.app:app:1.4.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
-    implementation("com.google.guava:guava:33.3.1-android")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.9.0")
 }

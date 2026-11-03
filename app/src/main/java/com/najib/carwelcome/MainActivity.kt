@@ -1,33 +1,28 @@
 package com.najib.carwelcome
 
 import android.Manifest
-import android.os.Build
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
-import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Spinner
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 
-/** Phone-side settings screen: greeting text, reciter, and a test button. */
+/** Phone-side settings: your name, what plays on start, clock format, and a test button. */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: Prefs
-    private var greeter: Greeter? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
-        if (Build.VERSION.SDK_INT >= 33) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION), 1)
         }
 
         val pad = (16 * resources.displayMetrics.density).toInt()
@@ -36,72 +31,41 @@ class MainActivity : AppCompatActivity() {
             setPadding(pad, pad, pad, pad)
         }
 
-        column.addView(label("Greeting spoken when the phone connects to the car"))
-        val greeting = EditText(this).apply {
-            setText(prefs.greetingText)
+        column.addView(label("Your name (used in the welcome)"))
+        column.addView(EditText(this).apply {
+            setText(prefs.name)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                 override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                override fun afterTextChanged(s: Editable?) {
-                    prefs.greetingText = s?.toString()?.ifBlank { Prefs.DEFAULT_GREETING }
-                        ?: Prefs.DEFAULT_GREETING
-                }
+                override fun afterTextChanged(s: Editable?) { prefs.name = s?.toString().orEmpty() }
             })
-        }
-        column.addView(greeting)
+        })
+
+        column.addView(CheckBox(this).apply {
+            text = "Welcome me when I open the dashboard in the car"
+            isChecked = prefs.welcomeOnOpen
+            setOnCheckedChangeListener { _, v -> prefs.welcomeOnOpen = v }
+        })
+        column.addView(CheckBox(this).apply {
+            text = "Recite Dua al-Safar after the welcome"
+            isChecked = prefs.reciteDua
+            setOnCheckedChangeListener { _, v -> prefs.reciteDua = v }
+        })
+        column.addView(CheckBox(this).apply {
+            text = "24-hour clock"
+            isChecked = prefs.use24Hour
+            setOnCheckedChangeListener { _, v -> prefs.use24Hour = v }
+        })
 
         column.addView(Button(this).apply {
-            text = "Test greeting"
+            text = "Test the welcome"
             setOnClickListener {
-                val g = greeter ?: Greeter(this@MainActivity).also { greeter = it }
-                g.speak(prefs.greetingText) {}
-            }
-        })
-
-        column.addView(CheckBox(this).apply {
-            text = "Greet me when I connect to the car"
-            isChecked = prefs.greetOnConnect
-            setOnCheckedChangeListener { _, v -> prefs.greetOnConnect = v }
-        })
-        column.addView(CheckBox(this).apply {
-            text = "Start playing after the greeting"
-            isChecked = prefs.autoPlayAfterGreeting
-            setOnCheckedChangeListener { _, v -> prefs.autoPlayAfterGreeting = v }
-        })
-
-        column.addView(label("Surah to play when you start driving"))
-        column.addView(Spinner(this).apply {
-            val choices = listOf("Continue where I left off") +
-                SURAH_NAMES.mapIndexed { i, name -> "${i + 1}. $name" }
-            adapter = ArrayAdapter(
-                this@MainActivity, android.R.layout.simple_spinner_dropdown_item, choices
-            )
-            setSelection(prefs.journeySurah)
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                    prefs.journeySurah = pos
-                }
-                override fun onNothingSelected(p: AdapterView<*>?) {}
-            }
-        })
-
-        column.addView(label("Reciter"))
-        column.addView(Spinner(this).apply {
-            adapter = ArrayAdapter(
-                this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
-                RECITERS.map { it.name }
-            )
-            setSelection(RECITERS.indexOf(reciterById(prefs.reciterId)))
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                    prefs.reciterId = RECITERS[pos].id
-                }
-                override fun onNothingSelected(p: AdapterView<*>?) {}
+                Weather.refresh(this@MainActivity)
+                Welcome.run(this@MainActivity)
             }
         })
 
         column.addView(label(SETUP_TEXT).apply { setPadding(0, pad, 0, 0) })
-
         setContentView(ScrollView(this).apply { addView(column) })
     }
 
@@ -111,17 +75,11 @@ class MainActivity : AppCompatActivity() {
         setPadding(0, (12 * resources.displayMetrics.density).toInt(), 0, 0)
     }
 
-    override fun onDestroy() {
-        greeter?.shutdown()
-        super.onDestroy()
-    }
-
     companion object {
-        private const val SETUP_TEXT = """Setup on your phone (one time):
-1. Open Settings > Apps > Android Auto > Additional settings in the app (or open the Android Auto app).
-2. Scroll to "Version" and tap it 10 times, then accept to turn on developer mode.
-3. Tap the three-dot menu > Developer settings > tick "Unknown sources".
-4. In Android Auto settings, turn on "Start music automatically" (wording varies by version).
-5. Connect to the car, open the app launcher on the car screen and pick "Car Welcome" once. From then on Android Auto resumes it when you connect, and you'll hear your greeting."""
+        private const val SETUP_TEXT = """Setup (one time):
+1. Allow location when asked, so the dashboard can show the outside temperature.
+2. For Dua al-Safar in Arabic, install the Arabic voice: Settings > Speech > Text-to-speech > Google > Install voice data > Arabic. Without it the meaning is read in English.
+3. Android Auto settings: tap "Version" 10 times to turn on developer mode, then three-dot menu > Developer settings > tick "Unknown sources".
+4. In the car, open the app launcher and pick "Najeem Drive"."""
     }
 }
