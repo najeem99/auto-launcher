@@ -28,6 +28,7 @@ class DashboardSession : Session() {
     override fun onCreateScreen(intent: Intent): Screen {
         // Fetch weather first so the greeting can mention it, then welcome.
         Weather.refresh(carContext)
+        Welcome.startDrive()
         Welcome.runIfDue(carContext)
         return DashboardScreen(carContext)
     }

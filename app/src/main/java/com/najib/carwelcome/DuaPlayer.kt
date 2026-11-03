@@ -29,6 +29,11 @@ object DuaPlayer {
     fun hasCustomRecording(context: Context) = file(context).let { it.exists() && it.length() > 0 }
 
     val isPlaying: Boolean get() = runCatching { player?.isPlaying == true }.getOrDefault(false)
+    /** Loaded and either playing or paused part-way. */
+    val isActive: Boolean get() = player != null
+    val isPaused: Boolean get() = player != null && !isPlaying
+    /** True once the recording has played to the end during this drive. */
+    @Volatile var completedThisDrive = false
     val positionMs: Int get() = runCatching { player?.currentPosition ?: 0 }.getOrDefault(0)
     val durationMs: Int get() = runCatching { player?.duration ?: 0 }.getOrDefault(0)
 
@@ -63,10 +68,21 @@ object DuaPlayer {
             focus = null
             onFinished()
         }
-        mp.setOnCompletionListener { stop() }
+        mp.setOnCompletionListener {
+            completedThisDrive = true
+            stop()
+        }
         player = mp
         mp.start()
         return true
+    }
+
+    fun pause() {
+        runCatching { if (player?.isPlaying == true) player?.pause() }
+    }
+
+    fun resume() {
+        runCatching { if (player != null && player?.isPlaying == false) player?.start() }
     }
 
     fun stop() {

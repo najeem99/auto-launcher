@@ -20,6 +20,7 @@ import android.text.TextUtils
 import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
+import com.najib.carwelcome.DuaPlayer
 import com.najib.carwelcome.DuaSafar
 import com.najib.carwelcome.Prefs
 import com.najib.carwelcome.Weather
@@ -36,7 +37,10 @@ import kotlin.math.sin
  * Draws the dashboard on the car screen: greeting, big clock, weather card and
  * the Dua al-Safar card. Redraws every second. Layout follows the HTML mockup.
  */
-class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
+class DashboardRenderer(
+    private val carContext: CarContext,
+    private val onTick: () -> Unit = {},
+) : SurfaceCallback {
 
     private var container: SurfaceContainer? = null
     private var visibleArea: Rect? = null
@@ -50,6 +54,7 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
     // surface many times a second made the projected screen flash.
     private val tick = object : Runnable {
         override fun run() {
+            onTick()
             draw()
             handler.postDelayed(this, if (Welcome.isSpeaking) 250L else 1000L)
         }
@@ -67,13 +72,25 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
     private val cardFill = Color.argb(20, 255, 255, 255)
     private val duaFill = Color.argb(217, 19, 29, 49)
 
-    private val light = Typeface.create("sans-serif-thin", Typeface.NORMAL)
-    private val regular = Typeface.create("sans-serif", Typeface.NORMAL)
-    private val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-    private val serif = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+    // The same fonts as the mockup, bundled in assets/fonts (SIL Open Font License).
+    private val light = font("Sora.ttf", 200, Typeface.create("sans-serif-light", Typeface.NORMAL))      // clock
+    private val light300 = font("Sora.ttf", 300, light)                                                   // temperature
+    private val regular = font("Manrope.ttf", 500, Typeface.create("sans-serif", Typeface.NORMAL))
+    private val medium = font("Manrope.ttf", 600, Typeface.create("sans-serif-medium", Typeface.NORMAL))
+    private val bold = font("Manrope.ttf", 700, medium)
+    private val serif = runCatching { Typeface.createFromAsset(carContext.assets, "fonts/Amiri-Regular.ttf") }
+        .getOrDefault(Typeface.create(Typeface.SERIF, Typeface.NORMAL))
 
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val text = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private fun font(file: String, weight: Int, fallback: Typeface): Typeface = runCatching {
+        Typeface.Builder(carContext.assets, "fonts/$file")
+            .setFontVariationSettings("'wght' $weight")
+            .setWeight(weight)
+            .build()
+    }.getOrNull() ?: fallback
+
+    private val textFlags = Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG or Paint.LINEAR_TEXT_FLAG
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
+    private val text = TextPaint(textFlags)
 
     override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
         // Only one renderer may draw on the car surface at a time.
@@ -133,7 +150,7 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         return listOf(
             c.width, c.height, visibleArea,
             SimpleDateFormat("yyyyMMddHHmm", Locale.US).format(Date()), prefs.use24Hour, prefs.name,
-            Welcome.isGreeting, Welcome.isReciting, Welcome.currentDuaLine,
+            Welcome.isGreeting, Welcome.isReciting, DuaPlayer.isPlaying, Welcome.currentDuaLine,
             if (p < 0f) -1 else (p * 400).toInt(),
             w?.tempC, w?.code, w?.let { (System.currentTimeMillis() - it.fetchedAt) / 60000 },
         ).joinToString("|")
@@ -215,8 +232,9 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         val ampm = if (is24) "" else SimpleDateFormat("a", Locale.US).format(now)
         val colW = cardRect.left - gap - left
         text.typeface = light
+        text.letterSpacing = -0.04f
         text.textSize = u * 0.17f
-        val ampmPaint = TextPaint(text).apply { typeface = medium; textSize = u * 0.032f; color = ink2 }
+        val ampmPaint = TextPaint(text).apply { typeface = regular; textSize = u * 0.032f; color = ink2; letterSpacing = 0.04f }
         val needed = text.measureText(timeStr) + (if (ampm.isEmpty()) 0f else u * 0.012f + ampmPaint.measureText(ampm))
         if (needed > colW) text.textSize *= colW / needed
         val dateSize = u * 0.025f
@@ -228,7 +246,8 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         if (ampm.isNotEmpty()) {
             canvas.drawText(ampm, left + text.measureText(timeStr) + u * 0.012f, baseline, ampmPaint)
         }
-        text.typeface = medium
+        text.letterSpacing = 0f
+        text.typeface = regular
         text.textSize = dateSize
         text.color = ink2
         val dateStr = SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(now)
@@ -251,12 +270,14 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         drawWeatherIcon(canvas, iconRect, w?.kind ?: WeatherNow.Kind.CLOUD)
 
         val tx = iconRect.right + u * 0.016f
-        text.typeface = light
-        text.textSize = u * 0.07f
+        text.typeface = light300
+        text.letterSpacing = -0.03f
+        text.textSize = u * 0.074f
         text.color = ink
         val temp = w?.let { "${it.tempC}°" } ?: "--°"
         canvas.drawText(temp, tx, iconRect.top + text.textSize * 0.82f, text)
-        text.typeface = medium
+        text.letterSpacing = 0f
+        text.typeface = regular
         text.textSize = u * 0.02f
         text.color = ink2
         val cond = w?.description ?: "Turn on location for weather"
@@ -343,7 +364,7 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         val next = DuaSafar.LINES.getOrNull(lineIdx + 1)
 
         // Label on the left
-        text.typeface = medium
+        text.typeface = bold
         text.textSize = u * 0.016f
         text.color = sand
         text.letterSpacing = 0.14f
@@ -356,6 +377,7 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         text.textSize = u * 0.017f
         text.color = if (speaking) sand else ink3
         val state = when {
+            reciting && !DuaPlayer.isPlaying -> "Paused · ${lineIdx + 1} / ${DuaSafar.LINES.size}"
             reciting -> "${lineIdx + 1} / ${DuaSafar.LINES.size}"
             Welcome.isGreeting -> "Welcome…"
             else -> "Tap Dua to play"
@@ -367,10 +389,10 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         val midL = r.left + inPad * 2 + labelW
         val midR = r.right - inPad * 2 - stateW
         val midW = (midR - midL).toInt().coerceAtLeast(10)
-        val ar = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        val ar = TextPaint(textFlags).apply {
             typeface = serif; color = if (reciting) ink else ink2; textSize = u * 0.032f
         }
-        val nx = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        val nx = TextPaint(textFlags).apply {
             typeface = serif; color = ink3; textSize = u * 0.019f; textAlign = Paint.Align.RIGHT
         }
         val nextText = next?.let { TextUtils.ellipsize(it.arabic, nx, midW.toFloat(), TextUtils.TruncateAt.END).toString() }
