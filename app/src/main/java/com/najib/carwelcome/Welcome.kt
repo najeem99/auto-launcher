@@ -17,19 +17,19 @@ object Welcome {
     private var runToken = 0
 
     val isGreeting: Boolean get() = greeter?.isSpeaking == true
-    val isReciting: Boolean get() = DuaPlayer.isPlaying
+    val isReciting: Boolean get() = DuaPlayer.isActive
     val isSpeaking: Boolean get() = isGreeting || isReciting
 
     /** Index into [DuaSafar.LINES] being recited, or -1. */
     val currentDuaLine: Int get() {
         val ctx = appContext ?: return -1
-        if (!DuaPlayer.isPlaying) return -1
+        if (!DuaPlayer.isActive) return -1
         return DuaPlayer.lineAt(ctx, DuaPlayer.positionMs, DuaPlayer.durationMs)
     }
 
     /** Recitation progress 0..1, or -1 when not reciting. */
     val progress: Float get() {
-        if (!DuaPlayer.isPlaying) return -1f
+        if (!DuaPlayer.isActive) return -1f
         val d = DuaPlayer.durationMs
         return if (d > 0) DuaPlayer.positionMs.toFloat() / d else 0f
     }
@@ -73,15 +73,37 @@ object Welcome {
         }
     }
 
-    /** The Dua button: play the recording, or stop if something is playing. */
-    fun toggleDua(context: Context): Boolean {
-        appContext = context.applicationContext
-        if (isSpeaking) {
-            runToken++
-            greeter?.stop()
-            DuaPlayer.stop()
-            return true
-        }
-        return DuaPlayer.play(context.applicationContext)
+    /** True while the phone is projecting to the car. */
+    @Volatile var carConnected = false
+
+    /** Silences everything at once: the greeting, and the dua (which won't start afterwards). */
+    fun stopAll() {
+        runToken++
+        greeter?.stop()
+        DuaPlayer.stop()
     }
+
+    enum class DuaButton { PLAY, PAUSE, HIDDEN }
+
+    /** What the Dua button should show: Pause while playing, Play when paused, gone once finished. */
+    fun duaButton(): DuaButton = when {
+        DuaPlayer.completedThisDrive && !DuaPlayer.isActive -> DuaButton.HIDDEN
+        isGreeting || DuaPlayer.isPlaying -> DuaButton.PAUSE
+        else -> DuaButton.PLAY
+    }
+
+    /** New drive: the Dua button comes back. */
+    fun startDrive() { DuaPlayer.completedThisDrive = false }
+
+    /** The Dua button: pause, resume, or start the recording. Returns false if it can't play. */
+    fun pressDua(context: Context): Boolean {
+        appContext = context.applicationContext
+        return when {
+            isGreeting -> { runToken++; greeter?.stop(); true }
+            DuaPlayer.isPlaying -> { DuaPlayer.pause(); true }
+            DuaPlayer.isPaused -> { DuaPlayer.resume(); true }
+            else -> DuaPlayer.play(context.applicationContext)
+        }
+    }
+
 }

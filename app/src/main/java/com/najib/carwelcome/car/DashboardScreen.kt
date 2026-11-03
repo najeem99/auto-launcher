@@ -1,6 +1,8 @@
 package com.najib.carwelcome.car
 
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.DrawableRes
 import androidx.car.app.AppManager
 import androidx.car.app.CarContext
@@ -21,36 +23,46 @@ import com.najib.carwelcome.Welcome
 /** The front page: a full-screen drawn dashboard plus the Dua, Map and Claude buttons. */
 class DashboardScreen(carContext: CarContext) : Screen(carContext) {
 
-    private val renderer = DashboardRenderer(carContext)
+    private var shownButton = Welcome.duaButton()
+    private val renderer = DashboardRenderer(carContext, onTile = { tile -> onTile(tile) }) {
+        // Refresh the button strip when the Dua button needs to change.
+        val now = Welcome.duaButton()
+        if (now != shownButton) { shownButton = now; invalidate() }
+    }
+    private val main = Handler(Looper.getMainLooper())
 
     init {
         Welcome.attach(carContext)
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(renderer)
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
-                Weather.refresh(carContext) { renderer.draw() }
+                // The weather arrives on a background thread; draw on the main thread only.
+                Weather.refresh(carContext) { main.post { renderer.draw() } }
             }
             override fun onDestroy(owner: LifecycleOwner) = renderer.stop()
         })
     }
 
     override fun onGetTemplate(): Template {
+        shownButton = Welcome.duaButton()
         val strip = ActionStrip.Builder()
-            .addAction(
+        if (shownButton != Welcome.DuaButton.HIDDEN) {
+            val playing = shownButton == Welcome.DuaButton.PAUSE
+            strip.addAction(
                 Action.Builder()
-                    .setTitle("Dua")
-                    .setIcon(icon(R.drawable.ic_dua))
+                    .setTitle(if (playing) "Pause" else "Dua")
+                    .setIcon(icon(if (playing) R.drawable.ic_pause else R.drawable.ic_play))
                     .setOnClickListener {
-                        if (!Welcome.toggleDua(carContext)) {
-                            CarToast.makeText(
-                                carContext,
-                                "Couldn't play Dua al-Safar",
-                                CarToast.LENGTH_LONG
-                            ).show()
+                        if (!Welcome.pressDua(carContext)) {
+                            CarToast.makeText(carContext, "Couldn't play Dua al-Safar", CarToast.LENGTH_LONG).show()
                         }
+                        shownButton = Welcome.duaButton()
+                        invalidate()
                     }
                     .build()
             )
+        }
+        strip
             .addAction(
                 Action.Builder()
                     .setIcon(icon(R.drawable.ic_map))
@@ -63,8 +75,22 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
                     .setOnClickListener { openClaude() }
                     .build()
             )
-            .build()
-        return NavigationTemplate.Builder().setActionStrip(strip).build()
+        return NavigationTemplate.Builder().setActionStrip(strip.build()).build()
+    }
+    /** Big buttons drawn in the compact (split-screen) layout. */
+    private fun onTile(tile: DashboardRenderer.Tile) {
+        when (tile) {
+            DashboardRenderer.Tile.DUA -> {
+                if (!Welcome.pressDua(carContext)) {
+                    CarToast.makeText(carContext, "Couldn't play Dua al-Safar", CarToast.LENGTH_LONG).show()
+                }
+                shownButton = Welcome.duaButton()
+                invalidate()
+                renderer.draw()
+            }
+            DashboardRenderer.Tile.MAP -> screenManager.push(PlacesScreen(carContext))
+            DashboardRenderer.Tile.CLAUDE -> openClaude()
+        }
     }
 
     /** Claude has no Android Auto app, so this opens it on the phone for use when parked. */
