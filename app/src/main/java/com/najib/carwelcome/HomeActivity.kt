@@ -5,7 +5,6 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -184,10 +183,7 @@ class HomeActivity : AppCompatActivity() {
     }
 
     private fun navigate(place: String) {
-        val maps = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(place)))
-            .setPackage("com.google.android.apps.maps")
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        try { startActivity(maps) } catch (_: Exception) { toast("Install Google Maps first") }
+        if (!Directions.startNow(this, place)) toast("Install Google Maps first")
     }
 
     private fun refreshAudio() {
