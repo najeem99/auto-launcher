@@ -119,7 +119,7 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             DashboardRenderer.Tile.UTILITIES -> screenManager.push(UtilitiesScreen(carContext))
             DashboardRenderer.Tile.YOUTUBE -> openYouTube(hostSaysParked = false)
             DashboardRenderer.Tile.HOME -> PlacesScreen.navigateTo(carContext, "Home")
-            DashboardRenderer.Tile.WORK -> PlacesScreen.navigateTo(carContext, "Work")
+            DashboardRenderer.Tile.WORK -> PlacesScreen.navigateTo(carContext, "Work", "Office")
             DashboardRenderer.Tile.CHECKIN -> startCheckIn(carContext, renderer::draw)
         }
     }

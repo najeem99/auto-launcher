@@ -8,7 +8,6 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
-import java.io.File
 
 /**
  * Plays Dua al-Safar (the recording built into the app, or one you added in the
@@ -31,9 +30,6 @@ object DuaPlayer {
     /** Start of each phrase in the built-in recording (ms). */
     private val BUILT_IN_STARTS = DuaSafar.LINES.mapIndexed { i, l -> if (i == 0) 0 else l.wordStarts.first() }
 
-    /** A recording you added in the phone app; replaces the built-in one. */
-    fun file(context: Context) = File(context.filesDir, "dua_al_safar.audio")
-    fun hasCustomRecording(context: Context) = file(context).let { it.exists() && it.length() > 0 }
 
     val isPlaying: Boolean get() = runCatching { player?.isPlaying == true }.getOrDefault(false)
     /** Loaded and either playing or paused part-way. */
@@ -44,10 +40,9 @@ object DuaPlayer {
     val positionMs: Int get() = runCatching { player?.currentPosition ?: 0 }.getOrDefault(0)
     val durationMs: Int get() = runCatching { player?.duration ?: 0 }.getOrDefault(0)
 
-    /** Starts the recording. Returns false if none has been added yet. */
+    /** Starts the built-in recording. Returns false if it couldn't be played. */
     fun play(context: Context, onFinished: () -> Unit = {}): Boolean {
         stop()
-        val custom = hasCustomRecording(context)
         val attrs = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -55,12 +50,8 @@ object DuaPlayer {
         val mp = try {
             MediaPlayer().apply {
                 setAudioAttributes(attrs)
-                if (custom) {
-                    setDataSource(file(context).absolutePath)
-                } else {
-                    context.resources.openRawResourceFd(R.raw.dua_al_safar).use {
-                        setDataSource(it.fileDescriptor, it.startOffset, it.length)
-                    }
+                context.resources.openRawResourceFd(R.raw.dua_al_safar).use {
+                    setDataSource(it.fileDescriptor, it.startOffset, it.length)
                 }
                 prepare()
             }
@@ -127,23 +118,14 @@ object DuaPlayer {
      * word has started yet or a recording of your own is playing (no word timings).
      */
     fun wordAt(context: Context, line: Int, positionMs: Int): Int {
-        if (hasCustomRecording(context) || Prefs(context).duaTimings?.size == DuaSafar.LINES.size) return -1
         val starts = DuaSafar.LINES.getOrNull(line)?.wordStarts ?: return -1
         var idx = -1
         starts.forEachIndexed { i, s -> if (positionMs >= s) idx = i }
         return idx
     }
 
-    /**
-     * Start time of each line in ms. Uses the timings saved with "Sync lyrics";
-     * otherwise splits the recording by each line's length.
-     */
+    /** Start time of each line in ms, for the built-in recording. */
     fun lineStarts(context: Context, durationMs: Int): List<Int> {
-        Prefs(context).duaTimings?.let { if (it.size == DuaSafar.LINES.size) return it }
-        if (!hasCustomRecording(context)) return BUILT_IN_STARTS
-        val weights = DuaSafar.LINES.map { it.arabic.length.toFloat() }
-        val total = weights.sum()
-        var acc = 0f
-        return weights.map { w -> (durationMs * (acc / total)).toInt().also { acc += w } }
+        return BUILT_IN_STARTS
     }
 }
