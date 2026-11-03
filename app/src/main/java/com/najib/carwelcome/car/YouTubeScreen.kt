@@ -32,7 +32,7 @@ class YouTubeScreen(carContext: CarContext, hostSaysParked: Boolean = false) : S
     }
 
     init {
-        parked.forcedParked = hostSaysParked
+        parked.forcedParked = hostSaysParked || ParkedDetector.manualParked
         carContext.onBackPressedDispatcher.addCallback(this, backFromFullScreen)
         layer.onFullScreenChanged = {
             backFromFullScreen.isEnabled = layer.fullScreen
@@ -93,6 +93,7 @@ class YouTubeScreen(carContext: CarContext, hostSaysParked: Boolean = false) : S
                     .setIcon(icon(if (parked.forcedParked) R.drawable.ic_parked_on else R.drawable.ic_parked))
                     .setOnClickListener {
                         parked.forcedParked = !parked.forcedParked
+                        ParkedDetector.manualParked = parked.forcedParked
                         CarToast.makeText(
                             carContext,
                             if (parked.forcedParked) "Marked as parked. Video still pauses above 18 km/h."

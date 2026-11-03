@@ -118,6 +118,13 @@ class ParkedDetector(private val carContext: CarContext) {
     }
 
     companion object {
+        /**
+         * The Parked switch on the Utilities screen. While on, YouTube opens unlocked and
+         * only pauses above 18 km/h. Cleared on every new drive and as soon as the car
+         * drives faster than 25 km/h.
+         */
+        @Volatile var manualParked = false
+
         private const val FRESH_MS = 4_000L
         private const val SETTLE_MS = 2_000L
         /** About 10 km/h: clearly driving, well above GPS jitter while standing. */

@@ -36,17 +36,21 @@ class DashboardSession : Session() {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onCreate(owner: LifecycleOwner) {
                 Welcome.carConnected = true
+                ParkedDetector.manualParked = false
+                DriveSpeed.start(carContext)
                 // Android Auto is connected: start (or continue) the trip log.
                 TripRecorder.onCarScreenOpened(carContext)
                 CarConnection(carContext).type.observe(owner) { type ->
                     if (type == CarConnection.CONNECTION_TYPE_NOT_CONNECTED) {
                         Welcome.carConnected = false
                         Welcome.stopAll()
+                        DriveSpeed.stop()
                     }
                 }
             }
 
             override fun onDestroy(owner: LifecycleOwner) {
+                DriveSpeed.stop()
                 TripRecorder.onCarScreenClosed(carContext)
                 Welcome.carConnected = false
                 Welcome.stopAll()
