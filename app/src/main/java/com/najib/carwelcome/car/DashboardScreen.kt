@@ -22,7 +22,7 @@ import com.najib.carwelcome.R
 import com.najib.carwelcome.Weather
 import com.najib.carwelcome.Welcome
 
-/** The front page: a full-screen drawn dashboard plus the Dua, Map, Claude and YouTube buttons. */
+/** The front page: a full-screen drawn dashboard plus the Dua, Map, Utilities and YouTube buttons. */
 class DashboardScreen(carContext: CarContext) : Screen(carContext) {
 
     private var shownButton = Welcome.duaButton()
@@ -88,8 +88,8 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             )
             .addAction(
                 Action.Builder()
-                    .setIcon(icon(R.drawable.ic_claude))
-                    .setOnClickListener { openClaude() }
+                    .setIcon(icon(R.drawable.ic_grid))
+                    .setOnClickListener { screenManager.push(UtilitiesScreen(carContext)) }
                     .build()
             )
             .addAction(
@@ -115,7 +115,8 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
                 renderer.draw()
             }
             DashboardRenderer.Tile.MAP -> screenManager.push(PlacesScreen(carContext))
-            DashboardRenderer.Tile.CLAUDE -> openClaude()
+            DashboardRenderer.Tile.CLAUDE -> openClaude(carContext)
+            DashboardRenderer.Tile.UTILITIES -> screenManager.push(UtilitiesScreen(carContext))
             DashboardRenderer.Tile.YOUTUBE -> openYouTube(hostSaysParked = false)
             DashboardRenderer.Tile.HOME -> PlacesScreen.navigateTo(carContext, "Home")
             DashboardRenderer.Tile.WORK -> PlacesScreen.navigateTo(carContext, "Work", "Office")
@@ -128,31 +129,31 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
         screenManager.push(YouTubeScreen(carContext, hostSaysParked))
     }
 
-    /** Claude has no Android Auto app, so this opens it on the phone for use when parked. */
-    private fun openClaude() {
-        val launch = carContext.packageManager.getLaunchIntentForPackage(CLAUDE_PACKAGE)
-        if (launch == null) {
-            CarToast.makeText(carContext, "Install the Claude app on your phone", CarToast.LENGTH_LONG).show()
-            return
-        }
-        if (!android.provider.Settings.canDrawOverlays(carContext)) {
-            // Android blocks opening apps on the phone from the background without this.
-            PlacesScreen.askForPermission(carContext)
-            return
-        }
-        try {
-            carContext.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            CarToast.makeText(carContext, "Claude is open on your phone. Use it when parked.", CarToast.LENGTH_LONG).show()
-        } catch (_: Exception) {
-            CarToast.makeText(carContext, "Couldn't open Claude on your phone", CarToast.LENGTH_LONG).show()
-        }
-    }
-
     private fun icon(@DrawableRes res: Int) =
         CarIcon.Builder(IconCompat.createWithResource(carContext, res)).build()
 
     companion object {
         private const val CLAUDE_PACKAGE = "com.anthropic.claude"
+
+        /** Claude has no Android Auto app, so this opens it on the phone for use when parked. */
+        fun openClaude(carContext: CarContext) {
+            val launch = carContext.packageManager.getLaunchIntentForPackage(CLAUDE_PACKAGE)
+            if (launch == null) {
+                CarToast.makeText(carContext, "Install the Claude app on your phone", CarToast.LENGTH_LONG).show()
+                return
+            }
+            if (!android.provider.Settings.canDrawOverlays(carContext)) {
+                // Android blocks opening apps on the phone from the background without this.
+                PlacesScreen.askForPermission(carContext)
+                return
+            }
+            try {
+                carContext.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                CarToast.makeText(carContext, "Claude is open on your phone. Use it when parked.", CarToast.LENGTH_LONG).show()
+            } catch (_: Exception) {
+                CarToast.makeText(carContext, "Couldn't open Claude on your phone", CarToast.LENGTH_LONG).show()
+            }
+        }
 
         /** Clock in on the HR site, hidden on the phone; the result shows as a toast and on the Clock in chip. */
         fun startCheckIn(carContext: CarContext, redraw: () -> Unit = {}) {
