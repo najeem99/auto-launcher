@@ -48,6 +48,8 @@ class DashboardRenderer(
     private val onTick: () -> Unit = {},
 ) : SurfaceCallback {
 
+    /** True while the car's speed (or GPS) says it's standing still: shows a blinking P. */
+    var isStopped: () -> Boolean = { false }
     private var container: SurfaceContainer? = null
     private var visibleArea: Rect? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -161,7 +163,7 @@ class DashboardRenderer(
         val w = Weather.latest
         return listOf(
             c.width, c.height, visibleArea,
-            SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(Date()), lyricsFull, DuaPlayer.completedThisDrive, prefs.use24Hour, prefs.name,
+            SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(Date()), lyricsFull, DuaPlayer.completedThisDrive, isStopped(), prefs.use24Hour, prefs.name,
             Welcome.isGreeting, Welcome.isReciting, DuaPlayer.isPlaying, Welcome.currentDuaLine, Welcome.currentDuaWord, Welcome.duaButton(), c.dpi,
             if (p < 0f) -1 else (p * 400).toInt(),
             w?.tempC, w?.code, w?.isDay, w?.place, w?.let { (System.currentTimeMillis() - it.fetchedAt) / 60000 },
@@ -235,6 +237,7 @@ class DashboardRenderer(
             mode == Mode.COMPACT -> paintCompact(canvas, inner)
             else -> paintWide(canvas, inner, u, mode, wDp)
         }
+        if (isStopped() && System.currentTimeMillis() / 1000 % 2 == 0L) drawParkedBadge(canvas, inner)
     }
 
     /** Full screen and medium panels: clock, weather and the lyrics card. Extras drop out as space shrinks. */
@@ -361,6 +364,20 @@ class DashboardRenderer(
         text.textSize = titleSize * 0.55f
         text.color = ink2
         canvas.drawText("Directions in Google Maps", tx, r.centerY() + titleSize * 0.85f, text)
+    }
+
+    /** Blinking "P" in the top-right corner while the car is stopped. */
+    private fun drawParkedBadge(canvas: Canvas, r: RectF) {
+        val size = max(28 * density, r.height() * 0.075f)
+        val box = RectF(r.right - size, r.top, r.right, r.top + size)
+        paint.color = Color.parseColor("#2F6FED")
+        canvas.drawRoundRect(box, size * 0.22f, size * 0.22f, paint)
+        text.textAlign = Paint.Align.CENTER
+        text.typeface = bold
+        text.textSize = size * 0.72f
+        text.color = Color.WHITE
+        canvas.drawText("P", box.centerX(), box.centerY() + text.textSize * 0.36f, text)
+        text.textAlign = Paint.Align.LEFT
     }
 
     /** The lyrics over the whole screen. Any tap closes them. */

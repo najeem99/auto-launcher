@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
@@ -38,6 +39,17 @@ class MainActivity : AppCompatActivity() {
     private val main = Handler(Looper.getMainLooper())
     private var syncTimes = mutableListOf<Int>()
 
+    private lateinit var overlayButton: Button
+
+    override fun onResume() {
+        super.onResume()
+        if (::overlayButton.isInitialized) {
+            val ok = Settings.canDrawOverlays(this)
+            overlayButton.text = if (ok) "Allowed: Maps and Claude can open" else "Allow opening Maps and Claude"
+            overlayButton.isEnabled = !ok
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
@@ -53,6 +65,16 @@ class MainActivity : AppCompatActivity() {
             setPadding(pad, pad, pad, pad)
         }
 
+        // Without "Display over other apps", Android blocks the car screen from opening
+        // Google Maps or Claude on the phone, so the Maps buttons did nothing.
+        overlayButton = Button(this).apply {
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            }
+        }
+        column.addView(heading("Maps and Claude from the car"))
+        column.addView(label("Allow \"Display over other apps\" so the car's Maps, Home, Office and Claude buttons can open those apps."))
+        column.addView(overlayButton)
         column.addView(heading("Welcome"))
         column.addView(label("Your name. The car says \"Welcome back, <name>\" in a female voice."))
         column.addView(EditText(this).apply {
