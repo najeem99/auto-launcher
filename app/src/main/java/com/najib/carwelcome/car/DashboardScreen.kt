@@ -20,7 +20,7 @@ import com.najib.carwelcome.R
 import com.najib.carwelcome.Weather
 import com.najib.carwelcome.Welcome
 
-/** The front page: a full-screen drawn dashboard plus the Dua, Map and Claude buttons. */
+/** The front page: a full-screen drawn dashboard plus the Dua, Map, Claude and YouTube buttons. */
 class DashboardScreen(carContext: CarContext) : Screen(carContext) {
 
     private var shownButton = Welcome.duaButton()
@@ -33,13 +33,19 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
 
     init {
         Welcome.attach(carContext)
-        carContext.getCarService(AppManager::class.java).setSurfaceCallback(renderer)
+        SurfaceHub.reset()
+        carContext.getCarService(AppManager::class.java).setSurfaceCallback(SurfaceHub)
+        SurfaceHub.show(renderer)
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
+                SurfaceHub.show(renderer) // take the screen back after YouTube
                 // The weather arrives on a background thread; draw on the main thread only.
                 Weather.refresh(carContext) { main.post { renderer.draw() } }
             }
-            override fun onDestroy(owner: LifecycleOwner) = renderer.stop()
+            override fun onDestroy(owner: LifecycleOwner) {
+                SurfaceHub.release(renderer)
+                renderer.stop()
+            }
         })
     }
 
@@ -75,6 +81,12 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
                     .setOnClickListener { openClaude() }
                     .build()
             )
+            .addAction(
+                Action.Builder()
+                    .setIcon(icon(R.drawable.ic_video))
+                    .setOnClickListener { openYouTube() }
+                    .build()
+            )
         return NavigationTemplate.Builder().setActionStrip(strip.build()).build()
     }
     /** Big buttons drawn in the compact (split-screen) layout. */
@@ -90,7 +102,13 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             }
             DashboardRenderer.Tile.MAP -> screenManager.push(PlacesScreen(carContext))
             DashboardRenderer.Tile.CLAUDE -> openClaude()
+            DashboardRenderer.Tile.YOUTUBE -> openYouTube()
         }
+    }
+
+    /** YouTube inside the dashboard; it only plays while the car is parked. */
+    private fun openYouTube() {
+        screenManager.push(YouTubeScreen(carContext))
     }
 
     /** Claude has no Android Auto app, so this opens it on the phone for use when parked. */
