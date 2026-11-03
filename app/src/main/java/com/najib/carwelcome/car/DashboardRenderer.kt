@@ -23,6 +23,7 @@ import androidx.car.app.SurfaceContainer
 import com.najib.carwelcome.DuaPlayer
 import com.najib.carwelcome.DuaSafar
 import com.najib.carwelcome.Prefs
+import com.najib.carwelcome.R
 import com.najib.carwelcome.Weather
 import com.najib.carwelcome.WeatherNow
 import com.najib.carwelcome.Welcome
@@ -30,6 +31,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
@@ -39,6 +41,7 @@ import kotlin.math.sin
  */
 class DashboardRenderer(
     private val carContext: CarContext,
+    private val onTile: (DashboardRenderer.Tile) -> Unit = {},
     private val onTick: () -> Unit = {},
 ) : SurfaceCallback {
 
@@ -150,7 +153,7 @@ class DashboardRenderer(
         return listOf(
             c.width, c.height, visibleArea,
             SimpleDateFormat("yyyyMMddHHmm", Locale.US).format(Date()), prefs.use24Hour, prefs.name,
-            Welcome.isGreeting, Welcome.isReciting, DuaPlayer.isPlaying, Welcome.currentDuaLine,
+            Welcome.isGreeting, Welcome.isReciting, DuaPlayer.isPlaying, Welcome.currentDuaLine, Welcome.duaButton(), c.dpi,
             if (p < 0f) -1 else (p * 400).toInt(),
             w?.tempC, w?.code, w?.let { (System.currentTimeMillis() - it.fetchedAt) / 60000 },
         ).joinToString("|")
@@ -173,38 +176,143 @@ class DashboardRenderer(
         return bmp
     }
 
+    enum class Tile { DUA, MAP, CLAUDE }
+
+    /** Which layout fits the space Android Auto gives us (full screen or a split-screen panel). */
+    private enum class Mode { FULL, MEDIUM, COMPACT }
+
+    private var density = 1f
+    private val tileRects = mutableMapOf<Tile, RectF>()
+
+    /** Taps on the big buttons in the compact layout. */
+    override fun onClick(x: Float, y: Float) {
+        tileRects.entries.firstOrNull { it.value.contains(x, y) }?.let { onTile(it.key) }
+    }
+
     private fun paintDashboard(canvas: Canvas, w: Int, h: Int) {
         // Background: deep night with a teal glow top-left and a sand glow bottom-right.
         canvas.drawBitmap(backgroundFor(w, h), 0f, 0f, null)
         paint.shader = null
+        tileRects.clear()
 
         val area = visibleArea?.takeIf { !it.isEmpty } ?: Rect(0, 0, w, h)
+        density = ((container?.dpi ?: 160) / 160f).coerceAtLeast(0.75f)
+        val wDp = area.width() / density
+        val hDp = area.height() / density
+        val mode = when {
+            wDp < 420 || hDp < 230 -> Mode.COMPACT
+            wDp < 620 || hDp < 330 -> Mode.MEDIUM
+            else -> Mode.FULL
+        }
         val u = min(area.width(), (area.height() * 1.67f).toInt()).toFloat() // ~width of a 5:3 box
-        val pad = u * 0.034f
-        val left = area.left + pad
-        val top = area.top + pad
-        val right = area.right - pad
-        val bottom = area.bottom - pad
-        val gap = u * 0.026f
+        val pad = if (mode == Mode.COMPACT) 12 * density else u * 0.034f
+        val inner = RectF(area.left + pad, area.top + pad, area.right - pad, area.bottom - pad)
+        when (mode) {
+            Mode.COMPACT -> paintCompact(canvas, inner)
+            else -> paintWide(canvas, inner, u, mode, wDp)
+        }
+    }
 
+    /** Full screen and medium panels: clock, weather and the lyrics card. Extras drop out as space shrinks. */
+    private fun paintWide(canvas: Canvas, r: RectF, u: Float, mode: Mode, wDp: Float) {
+        val full = mode == Mode.FULL
+        val gap = u * 0.026f
         val speaking = Welcome.isSpeaking
 
-        // Dua card (bottom, full width)
-        val duaH = (area.height() * 0.24f).coerceAtLeast(u * 0.11f)
-        val duaRect = RectF(left, bottom - duaH, right, bottom)
+        // Lyrics card along the bottom; bigger when the screen is smaller.
+        val duaH = r.height() * (if (full) 0.32f else 0.42f)
+        val duaRect = RectF(r.left, r.bottom - duaH, r.right, r.bottom)
         drawDuaCard(canvas, duaRect, u, speaking)
-
-        // Weather card (right column)
-        val cardW = u * 0.30f
         val upperBottom = duaRect.top - gap
-        val greetH = u * 0.06f
-        val cardRect = RectF(right - cardW, top + greetH + gap * 0.5f, right, upperBottom)
-        val cardH = min(cardRect.height(), u * 0.25f)
-        cardRect.top = cardRect.centerY() - cardH / 2
-        cardRect.bottom = cardRect.top + cardH
-        drawWeather(canvas, cardRect, u, Weather.latest)
 
-        // Greeting row with the voice orb
+        // Greeting row only on the full layout.
+        val greetH = if (full) u * 0.06f else 0f
+        val showWeather = full || wDp >= 520
+        val cardW = if (showWeather) u * (if (full) 0.30f else 0.34f) else 0f
+        val cardRect = RectF(r.right - cardW, r.top + greetH + gap * 0.5f, r.right, upperBottom)
+        if (showWeather) {
+            val cardH = min(cardRect.height(), u * 0.25f)
+            cardRect.top = cardRect.centerY() - cardH / 2
+            cardRect.bottom = cardRect.top + cardH
+            drawWeather(canvas, cardRect, u, Weather.latest)
+        }
+        if (full) drawGreeting(canvas, r.left, r.top, greetH, cardRect.left - gap, u, speaking)
+
+        val clockRight = if (showWeather) cardRect.left - gap else r.right
+        drawClock(canvas, RectF(r.left, r.top + greetH, clockRight, upperBottom), u, showDate = full)
+    }
+
+    /** Small split-screen card: big buttons first, then lyrics (while playing) or the clock if room is left. */
+    private fun paintCompact(canvas: Canvas, r: RectF) {
+        val d = density
+        val gap = 10 * d
+        val tiles = buildList {
+            if (Welcome.duaButton() != Welcome.DuaButton.HIDDEN) add(Tile.DUA)
+            add(Tile.MAP)
+            add(Tile.CLAUDE)
+        }
+        // Buttons: one row along the bottom, or a column if the panel is tall and narrow.
+        val tall = r.height() > r.width() * 1.3f
+        val tileArea = if (tall) {
+            RectF(r.left, r.bottom - min(r.height() * 0.6f, tiles.size * 84 * d), r.right, r.bottom)
+        } else {
+            RectF(r.left, r.bottom - min(r.height() * 0.45f, 96 * d), r.right, r.bottom)
+        }
+        tiles.forEachIndexed { i, t ->
+            val rect = if (tall) {
+                val th = (tileArea.height() - gap * (tiles.size - 1)) / tiles.size
+                RectF(tileArea.left, tileArea.top + i * (th + gap), tileArea.right, tileArea.top + i * (th + gap) + th)
+            } else {
+                val tw = (tileArea.width() - gap * (tiles.size - 1)) / tiles.size
+                RectF(tileArea.left + i * (tw + gap), tileArea.top, tileArea.left + i * (tw + gap) + tw, tileArea.bottom)
+            }
+            drawTile(canvas, rect, t)
+            tileRects[t] = rect
+        }
+
+        val upper = RectF(r.left, r.top, r.right, tileArea.top - gap)
+        if (upper.height() < 44 * d) return // no room: buttons only
+        if (Welcome.isReciting || Welcome.isGreeting) {
+            drawLyrics(canvas, upper, bare = true)
+        } else {
+            drawClock(canvas, upper, upper.width(), showDate = upper.height() > 120 * d)
+        }
+    }
+
+    private fun drawTile(canvas: Canvas, r: RectF, tile: Tile) {
+        val d = density
+        val radius = 16 * d
+        val (label, iconRes, accent) = when (tile) {
+            Tile.DUA -> if (Welcome.duaButton() == Welcome.DuaButton.PAUSE)
+                Triple("Pause", R.drawable.ic_pause, true) else Triple("Dua", R.drawable.ic_play, true)
+            Tile.MAP -> Triple("Maps", R.drawable.ic_map, false)
+            Tile.CLAUDE -> Triple("Claude", R.drawable.ic_claude, false)
+        }
+        paint.color = if (accent) sand else Color.parseColor("#1E283E")
+        canvas.drawRoundRect(r, radius, radius, paint)
+        val fg = if (accent) Color.parseColor("#2A1D05") else ink
+        val iconSize = min(r.height() * 0.42f, 34 * d)
+        text.typeface = bold
+        text.textSize = min(r.height() * 0.2f, 17 * d)
+        text.color = fg
+        val showLabel = r.height() > 64 * d
+        val total = iconSize + if (showLabel) text.textSize * 1.5f else 0f
+        val iconTop = r.centerY() - total / 2
+        val icon = carContext.getDrawable(iconRes)?.mutate()
+        icon?.setTint(if (tile == Tile.CLAUDE) Color.parseColor("#D97757") else if (tile == Tile.MAP) teal else fg)
+        icon?.setBounds(
+            (r.centerX() - iconSize / 2).toInt(), iconTop.toInt(),
+            (r.centerX() + iconSize / 2).toInt(), (iconTop + iconSize).toInt()
+        )
+        icon?.draw(canvas)
+        if (showLabel) {
+            text.textAlign = Paint.Align.CENTER
+            canvas.drawText(label, r.centerX(), iconTop + iconSize + text.textSize * 1.3f, text)
+            text.textAlign = Paint.Align.LEFT
+        }
+    }
+
+    private fun drawGreeting(canvas: Canvas, left: Float, top: Float, greetH: Float, maxRight: Float, u: Float, speaking: Boolean) {
         val orbR = u * 0.013f
         val orbCx = left + orbR
         val orbCy = top + greetH / 2
@@ -219,39 +327,52 @@ class DashboardRenderer(
         text.color = ink2
         val greeting = "${Welcome.greetingLine(prefs.name)} Welcome back."
         val greetX = orbCx + orbR * 2.4f
-        val maxGreetW = cardRect.left - gap - greetX
         canvas.drawText(
-            TextUtils.ellipsize(greeting, text, maxGreetW, TextUtils.TruncateAt.END).toString(),
+            TextUtils.ellipsize(greeting, text, maxRight - greetX, TextUtils.TruncateAt.END).toString(),
             greetX, orbCy + text.textSize * 0.35f, text
         )
+    }
 
-        // Big clock + date (left column, centred between greeting and dua card)
+    /** Big clock, fitted to [r]; the date is added only when asked and when it fits. */
+    private fun drawClock(canvas: Canvas, r: RectF, u: Float, showDate: Boolean) {
+        if (r.height() <= 0 || r.width() <= 0) return
         val now = Date()
         val is24 = prefs.use24Hour
         val timeStr = SimpleDateFormat(if (is24) "HH:mm" else "h:mm", Locale.getDefault()).format(now)
         val ampm = if (is24) "" else SimpleDateFormat("a", Locale.US).format(now)
-        val colW = cardRect.left - gap - left
         text.typeface = light
         text.letterSpacing = -0.04f
         text.textSize = u * 0.17f
         val ampmPaint = TextPaint(text).apply { typeface = regular; textSize = u * 0.032f; color = ink2; letterSpacing = 0.04f }
         val needed = text.measureText(timeStr) + (if (ampm.isEmpty()) 0f else u * 0.012f + ampmPaint.measureText(ampm))
-        if (needed > colW) text.textSize *= colW / needed
-        val dateSize = u * 0.025f
+        if (needed > r.width()) {
+            val k = r.width() / needed
+            text.textSize *= k
+            ampmPaint.textSize *= k
+        }
+        var dateSize = if (showDate) u * 0.025f else 0f
+        if (text.textSize * 0.78f + dateSize * 1.9f > r.height()) {
+            dateSize = 0f
+            text.textSize = min(text.textSize, r.height() / 0.85f)
+        }
         val blockH = text.textSize * 0.78f + dateSize * 1.9f
-        val spaceTop = top + greetH
-        val baseline = spaceTop + ((upperBottom - spaceTop) - blockH) / 2 + text.textSize * 0.78f
+        val baseline = r.top + (r.height() - blockH) / 2 + text.textSize * 0.78f
         text.color = ink
-        canvas.drawText(timeStr, left - text.textSize * 0.03f, baseline, text)
+        canvas.drawText(timeStr, r.left - text.textSize * 0.03f, baseline, text)
         if (ampm.isNotEmpty()) {
-            canvas.drawText(ampm, left + text.measureText(timeStr) + u * 0.012f, baseline, ampmPaint)
+            canvas.drawText(ampm, r.left + text.measureText(timeStr) + u * 0.012f, baseline, ampmPaint)
         }
         text.letterSpacing = 0f
-        text.typeface = regular
-        text.textSize = dateSize
-        text.color = ink2
-        val dateStr = SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(now)
-        canvas.drawText(dateStr, left, baseline + dateSize * 1.9f, text)
+        if (dateSize > 0f) {
+            text.typeface = regular
+            text.textSize = dateSize
+            text.color = ink2
+            val dateStr = SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(now)
+            canvas.drawText(
+                TextUtils.ellipsize(dateStr, text, r.width(), TextUtils.TruncateAt.END).toString(),
+                r.left, baseline + dateSize * 1.9f, text
+            )
+        }
     }
 
     private fun drawWeather(canvas: Canvas, r: RectF, u: Float, w: WeatherNow?) {
@@ -346,7 +467,7 @@ class DashboardRenderer(
         }
     }
 
-    /** Dua al-Safar card: the line being recited in large Arabic, like song lyrics. */
+    /** Dua al-Safar card: label, state, and the lyrics, as large as the card allows. */
     private fun drawDuaCard(canvas: Canvas, r: RectF, u: Float, speaking: Boolean) {
         val radius = u * 0.022f
         val reciting = Welcome.isReciting
@@ -360,67 +481,88 @@ class DashboardRenderer(
 
         val inPad = u * 0.022f
         val lineIdx = Welcome.currentDuaLine.takeIf { it in DuaSafar.LINES.indices } ?: 0
-        val dua = DuaSafar.LINES[lineIdx]
-        val next = DuaSafar.LINES.getOrNull(lineIdx + 1)
 
-        // Label on the left
+        // Label and state stacked on the left, so the lyrics get the full width on the right.
         text.typeface = bold
         text.textSize = u * 0.016f
         text.color = sand
         text.letterSpacing = 0.14f
         val label = "DUA AL-SAFAR"
-        canvas.drawText(label, r.left + inPad, r.centerY() + text.textSize * 0.35f, text)
         val labelW = text.measureText(label)
+        canvas.drawText(label, r.left + inPad, r.centerY() - text.textSize * 0.3f, text)
         text.letterSpacing = 0f
-
-        // State on the right
+        text.typeface = regular
         text.textSize = u * 0.017f
         text.color = if (speaking) sand else ink3
         val state = when {
-            reciting && !DuaPlayer.isPlaying -> "Paused · ${lineIdx + 1} / ${DuaSafar.LINES.size}"
+            reciting && !DuaPlayer.isPlaying -> "Paused · ${lineIdx + 1}/${DuaSafar.LINES.size}"
             reciting -> "${lineIdx + 1} / ${DuaSafar.LINES.size}"
             Welcome.isGreeting -> "Welcome…"
             else -> "Tap Dua to play"
         }
-        val stateW = text.measureText(state)
-        canvas.drawText(state, r.right - inPad - stateW, r.centerY() + text.textSize * 0.35f, text)
+        canvas.drawText(
+            TextUtils.ellipsize(state, text, labelW, TextUtils.TruncateAt.END).toString(),
+            r.left + inPad, r.centerY() + text.textSize * 1.2f, text
+        )
 
-        // Lyrics: current line large and bright, next line small and dim.
-        val midL = r.left + inPad * 2 + labelW
-        val midR = r.right - inPad * 2 - stateW
-        val midW = (midR - midL).toInt().coerceAtLeast(10)
-        val ar = TextPaint(textFlags).apply {
-            typeface = serif; color = if (reciting) ink else ink2; textSize = u * 0.032f
-        }
-        val nx = TextPaint(textFlags).apply {
-            typeface = serif; color = ink3; textSize = u * 0.019f; textAlign = Paint.Align.RIGHT
-        }
-        val nextText = next?.let { TextUtils.ellipsize(it.arabic, nx, midW.toFloat(), TextUtils.TruncateAt.END).toString() }
-        val nextH = if (nextText != null && reciting) nx.textSize * 1.5f else 0f
-        val maxH = r.height() - inPad * 1.6f - nextH
-        var arLayout = layout(dua.arabic, ar, midW, Layout.Alignment.ALIGN_OPPOSITE, 2)
-        while (arLayout.height > maxH && ar.textSize > u * 0.018f) {
-            ar.textSize *= 0.92f
-            arLayout = layout(dua.arabic, ar, midW, Layout.Alignment.ALIGN_OPPOSITE, 2)
-        }
-        val blockH = arLayout.height + nextH
-        val y0 = r.centerY() - blockH / 2
-        canvas.save()
-        canvas.translate(midL, y0)
-        arLayout.draw(canvas)
-        canvas.restore()
-        if (nextText != null && reciting) {
-            canvas.drawText(nextText, midL + midW, y0 + arLayout.height + nx.textSize * 1.25f, nx)
-        }
+        val lyrics = RectF(r.left + inPad * 2 + labelW, r.top + inPad * 0.6f, r.right - inPad, r.bottom - inPad * 0.9f)
+        drawLyrics(canvas, lyrics, bare = false)
 
-        // Progress along the bottom edge while reciting.
+        // Progress along the bottom edge.
         val p = Welcome.progress
         if (p >= 0f) {
-            val barY = r.bottom - u * 0.006f
+            val barH = max(2f, u * 0.003f)
+            val barY = r.bottom - u * 0.007f
             paint.color = Color.argb(40, 255, 255, 255)
-            canvas.drawRect(r.left + radius, barY, r.right - radius, barY + u * 0.003f, paint)
+            canvas.drawRect(r.left + radius, barY, r.right - radius, barY + barH, paint)
             paint.color = sand
-            canvas.drawRect(r.left + radius, barY, r.left + radius + (r.width() - 2 * radius) * p, barY + u * 0.003f, paint)
+            canvas.drawRect(r.left + radius, barY, r.left + radius + (r.width() - 2 * radius) * p, barY + barH, paint)
+        }
+    }
+
+    /**
+     * The lyrics: the line being recited in large Arabic (up to 2 lines, sized to
+     * fill [r]) and the next line smaller underneath when there is room.
+     */
+    private fun drawLyrics(canvas: Canvas, r: RectF, bare: Boolean) {
+        val reciting = Welcome.isReciting
+        val lineIdx = Welcome.currentDuaLine.takeIf { it in DuaSafar.LINES.indices } ?: 0
+        val dua = DuaSafar.LINES[lineIdx]
+        val next = DuaSafar.LINES.getOrNull(lineIdx + 1)?.takeIf { reciting }
+        val width = r.width().toInt().coerceAtLeast(10)
+
+        val ar = TextPaint(textFlags).apply {
+            typeface = serif; color = if (reciting) ink else ink2
+            textSize = r.height() * (if (next != null) 0.36f else 0.42f)
+        }
+        val nx = TextPaint(textFlags).apply { typeface = serif; color = ink3; textAlign = Paint.Align.RIGHT }
+        var arLayout: StaticLayout
+        var nextH: Float
+        while (true) {
+            nx.textSize = ar.textSize * 0.5f
+            nextH = if (next != null) nx.textSize * 1.6f else 0f
+            arLayout = layout(dua.arabic, ar, width, Layout.Alignment.ALIGN_OPPOSITE, 2)
+            if (arLayout.height + nextH <= r.height() || ar.textSize < 10f) break
+            ar.textSize *= 0.93f
+        }
+        val y0 = r.centerY() - (arLayout.height + nextH) / 2
+        canvas.save()
+        canvas.translate(r.left, y0)
+        arLayout.draw(canvas)
+        canvas.restore()
+        if (next != null) {
+            val nextText = TextUtils.ellipsize(next.arabic, nx, r.width(), TextUtils.TruncateAt.END).toString()
+            canvas.drawText(nextText, r.right, y0 + arLayout.height + nx.textSize * 1.3f, nx)
+        }
+        if (bare) {
+            val p = Welcome.progress
+            if (p >= 0f) {
+                val barH = max(3f, 3 * density)
+                paint.color = Color.argb(40, 255, 255, 255)
+                canvas.drawRect(r.left, r.bottom - barH, r.right, r.bottom, paint)
+                paint.color = sand
+                canvas.drawRect(r.left, r.bottom - barH, r.left + r.width() * p, r.bottom, paint)
+            }
         }
     }
 
