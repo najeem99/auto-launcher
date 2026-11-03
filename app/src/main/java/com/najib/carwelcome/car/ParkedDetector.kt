@@ -33,7 +33,7 @@ class ParkedDetector(private val carContext: CarContext) {
     @Volatile private var carAt = 0L
     @Volatile private var gpsSpeed = 0f
     @Volatile private var gpsAt = 0L
-    private var stillSince = 0L
+    private var movingSince = 0L
     private var running = false
 
     private val speedListener = OnCarDataAvailableListener<Speed> { speed ->
@@ -60,7 +60,7 @@ class ParkedDetector(private val carContext: CarContext) {
     fun start() {
         if (running) return
         running = true
-        stillSince = 0L
+        movingSince = 0L
         runCatching {
             carContext.getCarService(CarHardwareManager::class.java).carInfo
                 .addSpeedListener(ContextCompat.getMainExecutor(carContext), speedListener)
@@ -84,22 +84,35 @@ class ParkedDetector(private val carContext: CarContext) {
         }
     }
 
+    /**
+     * Set by the "I'm parked" button. Then only clear driving (over 18 km/h) pauses
+     * the video; slow or missing readings never do.
+     */
+    @Volatile var forcedParked = false
+
+    /**
+     * Lenient: the car counts as parked unless a fresh speed reading has shown it
+     * moving for 2 seconds. With no readings at all (many head units share none)
+     * the video is allowed.
+     */
     fun state(): State {
         val now = SystemClock.elapsedRealtime()
         val readings = buildList {
             if (now - carAt < FRESH_MS) add(carSpeed)
             if (now - gpsAt < FRESH_MS) add(gpsSpeed)
         }
-        if (readings.isEmpty()) { stillSince = 0L; return State.CHECKING }
-        if (readings.any { it > STILL_MPS }) { stillSince = 0L; return State.MOVING }
-        if (stillSince == 0L) stillSince = now
-        return if (now - stillSince >= SETTLE_MS) State.PARKED else State.CHECKING
+        val limit = if (forcedParked) FORCED_MOVING_MPS else MOVING_MPS
+        if (readings.none { it > limit }) { movingSince = 0L; return State.PARKED }
+        if (movingSince == 0L) movingSince = now
+        return if (now - movingSince >= SETTLE_MS) State.MOVING else State.PARKED
     }
 
     companion object {
         private const val FRESH_MS = 4_000L
-        private const val SETTLE_MS = 3_000L
-        /** About 3.6 km/h: below walking pace, above GPS jitter. */
-        private const val STILL_MPS = 1.0f
+        private const val SETTLE_MS = 2_000L
+        /** About 10 km/h: clearly driving, well above GPS jitter while standing. */
+        private const val MOVING_MPS = 2.8f
+        /** About 18 km/h, used after "I'm parked" is pressed. */
+        private const val FORCED_MOVING_MPS = 5.0f
     }
 }

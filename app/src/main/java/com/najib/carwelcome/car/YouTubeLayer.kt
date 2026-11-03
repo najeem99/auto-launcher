@@ -162,10 +162,7 @@ class YouTubeLayer(
         if (newState == ParkedDetector.State.PARKED) {
             if (changed || force) n.visibility = View.GONE
         } else {
-            n.text = if (newState == ParkedDetector.State.MOVING)
-                "Video is paused while driving.\nIt will be available again once you're parked."
-            else
-                "Checking that the car is parked…\nMake sure location is on for Najeem Drive."
+            n.text = "Video is paused while driving.\nIt comes back when you stop, or tap the P button if you're parked."
             n.visibility = View.VISIBLE
             n.bringToFront()
             pauseVideo() // keep it paused even if the page tries to autoplay
