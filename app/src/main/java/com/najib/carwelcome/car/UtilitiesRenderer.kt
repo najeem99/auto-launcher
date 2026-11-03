@@ -10,6 +10,7 @@ import android.graphics.RectF
 import android.graphics.Shader
 import androidx.car.app.CarContext
 import com.najib.carwelcome.CheckIn
+import com.najib.carwelcome.Prayer
 import com.najib.carwelcome.Prefs
 import com.najib.carwelcome.R
 import com.najib.carwelcome.Weather
@@ -44,14 +45,14 @@ class UtilitiesRenderer(
         return listOf(
             needle.shown?.let { (it * 2).toInt() }, DriveSpeed.signal(), DriveSpeed.accuracyM.toInt(), DriveSpeed.maxKmh.toInt(),
             CheckIn.phase, CheckIn.message, prefs.checkInUrl.isBlank(), ParkedDetector.manualParked,
-            w?.tempC, SimpleDateFormat("yyyyMMdd", Locale.US).format(Date()),
+            w?.tempC, Prayer.next(carContext).let { "${it.name}${it.at}${it.countdown()}" }, SimpleDateFormat("yyyyMMdd", Locale.US).format(Date()),
         ).joinToString("|")
     }
 
-    /** Small tiles in grid order. The next-prayer tile joins once it has real times. */
+    /** Small tiles in grid order. Split screen leaves out the prayer time and Claude. */
     private fun smallTiles(split: Boolean): List<Tile> =
         if (split) listOf(Tile.CHECKIN, Tile.OFFICE, Tile.HOME, Tile.PARKED)
-        else listOf(Tile.CHECKIN, Tile.OFFICE, Tile.HOME, Tile.CLAUDE, Tile.PARKED)
+        else listOf(Tile.CHECKIN, Tile.OFFICE, Tile.HOME, Tile.PRAYER, Tile.CLAUDE, Tile.PARKED)
 
     override fun render(canvas: Canvas, area: Rect) {
         val wDp = area.width() / density
@@ -234,6 +235,7 @@ class UtilitiesRenderer(
             canvas.drawCircle(if (parkedOn) tr.right - th / 2 else tr.left + th / 2, tr.centerY(), knobR, paint)
         }
 
+        val prayer = if (tile == Tile.PRAYER) Prayer.next(carContext) else null
         val (title, sub) = when (tile) {
             Tile.CHECKIN -> when {
                 noCheckIn -> "Check in" to "Set up in phone app"
@@ -244,7 +246,7 @@ class UtilitiesRenderer(
             }
             Tile.OFFICE -> "Office" to "Directions in Maps"
             Tile.HOME -> "Home" to "Directions in Maps"
-            Tile.PRAYER -> "Next prayer" to ""
+            Tile.PRAYER -> prayer!!.name to prayer.countdown()
             Tile.CLAUDE -> "Claude" to "On your phone"
             Tile.PARKED -> "Parked" to if (full) (if (parkedOn) "YouTube on" else "YouTube locked") else (if (parkedOn) "On" else "Off")
             Tile.SPEEDO -> "Speedometer" to ""
@@ -263,6 +265,7 @@ class UtilitiesRenderer(
         text.textSize = label
         text.color = if (tile == Tile.CHECKIN && checkPhase != CheckIn.Phase.DONE) look.sand else look.ink
         line(canvas, title, r.left + pad, baseline, if (tile == Tile.PARKED && !showIcon) textW * 0.55f else textW)
+        if (prayer != null) drawPrayerExtras(canvas, r, prayer, title, baseline, label, pad, iconBox, showIcon, textW)
 
         // Full layout: a status dot on the check-in tile, above the label.
         if (full && tile == Tile.CHECKIN && showIcon && !noCheckIn) {
@@ -287,6 +290,51 @@ class UtilitiesRenderer(
                 text.color = if (checkPhase == CheckIn.Phase.DONE) look.good else look.ink2
                 line(canvas, state, r.left + pad + dotR * 2 + label * 0.35f, sy, textW - dotR * 3)
             }
+        }
+    }
+    /** Next-prayer tile: the Arabic name after the English one, and the time in big digits above. */
+    private fun drawPrayerExtras(
+        canvas: Canvas, r: RectF, p: com.najib.carwelcome.NextPrayer, title: String,
+        baseline: Float, label: Float, pad: Float, iconBox: Float, showIcon: Boolean, textW: Float,
+    ) {
+        // "Maghrib المغرب"
+        text.typeface = look.manrope700
+        text.textSize = label
+        val titleW = text.measureText(title)
+        if (p.arabic.isNotEmpty()) {
+            text.typeface = look.amiri
+            text.textSize = label * 0.96f
+            text.color = look.sand
+            val x = r.left + pad + titleW + label * 0.4f
+            if (x + text.measureText(p.arabic) <= r.left + pad + textW) canvas.drawText(p.arabic, x, baseline, text)
+        }
+
+        // Big time: "5:52 PM", between the icon and the labels.
+        val top = r.top + pad + (if (showIcon) iconBox else 0f)
+        val bottom = baseline - label * 1.35f
+        val room = bottom - top
+        if (room < label * 1.3f) return
+        val is24 = prefs.use24Hour
+        val time = SimpleDateFormat(if (is24) "H:mm" else "h:mm", Locale.getDefault()).format(Date(p.at))
+        val ampm = if (is24) "" else SimpleDateFormat("a", Locale.US).format(Date(p.at)).uppercase(Locale.US)
+        text.typeface = look.sora300
+        text.letterSpacing = -0.03f
+        text.textSize = min(room * 0.95f, label * 2.1f)
+        val small = label * 0.72f
+        val timeW = text.measureText(time)
+        // Shrink to fit the tile's width with the AM/PM beside it.
+        val ampmW = if (ampm.isEmpty()) 0f else small * 2.2f
+        if (timeW + ampmW > textW) text.textSize *= textW / (timeW + ampmW)
+        val y = bottom - (room - text.textSize * 0.72f) / 2
+        text.color = look.ink
+        canvas.drawText(time, r.left + pad, y, text)
+        val afterTime = r.left + pad + text.measureText(time) + label * 0.3f
+        text.letterSpacing = 0f
+        if (ampm.isNotEmpty()) {
+            text.typeface = look.manrope600
+            text.textSize = small
+            text.color = look.ink2
+            canvas.drawText(ampm, afterTime, y, text)
         }
     }
 }
