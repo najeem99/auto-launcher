@@ -15,6 +15,7 @@ import androidx.car.app.model.Template
 import androidx.core.graphics.drawable.IconCompat
 import com.najib.carwelcome.CheckIn
 import com.najib.carwelcome.Prefs
+import com.najib.carwelcome.Directions
 import com.najib.carwelcome.R
 
 /** The Map button: pick a destination and hand it to Google Maps (or your default nav app). */
@@ -68,7 +69,6 @@ class PlacesScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     companion object {
-        private const val MAPS_PACKAGE = "com.google.android.apps.maps"
 
         /** When we last started Maps on the phone, so a bounced car request isn't sent twice. */
         @Volatile private var phoneStartedAt = 0L
@@ -76,22 +76,23 @@ class PlacesScreen(carContext: CarContext) : Screen(carContext) {
         /**
          * Starts Google Maps navigation to [query] ("Home", "Work", "mosque", …).
          *
-         * Android blocks apps from opening screens on the phone from the background,
-         * so the earlier versions silently did nothing. With "Display over other apps"
-         * allowed for Najeem Drive, Maps is started on the phone, and Android Auto shows
-         * its turn-by-turn on the car screen. Otherwise Android Auto is asked to hand
-         * the destination to Google Maps directly.
+         * Android doesn't let the car screen open Maps on the phone by itself. With
+         * "Display over other apps" allowed, Maps starts right away; otherwise a
+         * notification appears on the phone, and one tap on it starts navigation.
+         * Either way Android Auto then shows Maps' turn-by-turn on the car screen.
          */
-        fun navigateTo(carContext: CarContext, query: String): Boolean {
-            if (Settings.canDrawOverlays(carContext) && openOnPhone(carContext, query)) {
-                // Also bring Maps to the car screen.
-                runCatching { carContext.startCarApp(navigateIntent(query).setPackage(MAPS_PACKAGE)) }
+        fun navigateTo(carContext: CarContext, query: String, title: String = query): Boolean {
+            if (!Directions.hasMaps(carContext)) {
+                CarToast.makeText(carContext, "Install Google Maps to use directions", CarToast.LENGTH_LONG).show()
+                return false
+            }
+            if (Settings.canDrawOverlays(carContext) && Directions.startNow(carContext, query)) {
+                phoneStartedAt = System.currentTimeMillis()
+                CarToast.makeText(carContext, "Starting Google Maps…", CarToast.LENGTH_SHORT).show()
                 return true
             }
-            val sent = runCatching { carContext.startCarApp(navigateIntent(query).setPackage(MAPS_PACKAGE)) }.isSuccess ||
-                runCatching { carContext.startCarApp(navigateIntent(query)) }.isSuccess
-            if (sent) {
-                CarToast.makeText(carContext, "Starting Google Maps…", CarToast.LENGTH_SHORT).show()
+            if (Directions.notify(carContext, title, query)) {
+                CarToast.makeText(carContext, "Tap the notification on your phone to start", CarToast.LENGTH_LONG).show()
                 return true
             }
             askForPermission(carContext)
@@ -100,37 +101,18 @@ class PlacesScreen(carContext: CarContext) : Screen(carContext) {
 
         /**
          * Android Auto handed a navigation request back to this app (it is a navigation
-         * app too). Start Maps on the phone instead.
+         * app too). Pass it on to Maps.
          */
         fun onNavigateBounced(carContext: CarContext, intent: Intent) {
             if (System.currentTimeMillis() - phoneStartedAt < 5_000L) return
             val q = intent.data?.let { it.getQueryParameter("q") ?: it.schemeSpecificPart } ?: return
-            if (!Settings.canDrawOverlays(carContext) || !openOnPhone(carContext, q)) askForPermission(carContext)
-        }
-
-        private fun navigateIntent(query: String) =
-            Intent(CarContext.ACTION_NAVIGATE, Uri.parse("geo:0,0?q=" + Uri.encode(query)))
-
-        private fun openOnPhone(carContext: CarContext, query: String): Boolean {
-            val maps = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(query)))
-                .setPackage(MAPS_PACKAGE)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (maps.resolveActivity(carContext.packageManager) == null) {
-                CarToast.makeText(carContext, "Install Google Maps to use directions", CarToast.LENGTH_LONG).show()
-                return false
-            }
-            return runCatching { carContext.startActivity(maps) }.isSuccess.also {
-                if (it) {
-                    phoneStartedAt = System.currentTimeMillis()
-                    CarToast.makeText(carContext, "Starting Google Maps…", CarToast.LENGTH_SHORT).show()
-                }
-            }
+            navigateTo(carContext, q)
         }
 
         fun askForPermission(carContext: CarContext) {
             CarToast.makeText(
                 carContext,
-                "On your phone, open Najeem Drive and tap \"Allow opening Maps\"",
+                "On your phone, open Najeem Drive and allow notifications",
                 CarToast.LENGTH_LONG,
             ).show()
         }
