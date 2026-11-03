@@ -46,36 +46,41 @@ class PlacesScreen(carContext: CarContext) : Screen(carContext) {
             .build()
     }
 
-    /**
-     * Starts Google Maps navigation. A generic "navigate" request from the car is
-     * routed to the active navigation app, which is this dashboard, so it came
-     * straight back here and nothing happened. Asking Google Maps directly avoids
-     * that; Android Auto then switches the car screen to Maps' turn-by-turn view.
-     */
     private fun navigate(query: String) {
-        val maps = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(query)))
-            .setPackage(MAPS_PACKAGE)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        val started = runCatching {
-            if (maps.resolveActivity(carContext.packageManager) == null) error("Maps not installed")
-            carContext.startActivity(maps)
-        }.isSuccess
-        if (started) {
-            CarToast.makeText(carContext, "Starting Google Maps…", CarToast.LENGTH_SHORT).show()
-            screenManager.pop()
-            return
-        }
-        // Google Maps missing: fall back to the car's own navigation handoff.
-        try {
-            carContext.startCarApp(
-                Intent(CarContext.ACTION_NAVIGATE, Uri.parse("geo:0,0?q=" + Uri.encode(query)))
-            )
-        } catch (_: Exception) {
-            CarToast.makeText(carContext, "Install Google Maps to use directions", CarToast.LENGTH_LONG).show()
-        }
+        if (navigateTo(carContext, query)) screenManager.pop()
     }
 
     companion object {
         private const val MAPS_PACKAGE = "com.google.android.apps.maps"
+
+        /**
+         * Starts Google Maps navigation. A generic "navigate" request from the car is
+         * routed to the active navigation app, which is this dashboard, so it came
+         * straight back here and nothing happened. Asking Google Maps directly avoids
+         * that; Android Auto then switches the car screen to Maps' turn-by-turn view.
+         */
+        fun navigateTo(carContext: CarContext, query: String): Boolean {
+            val maps = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(query)))
+                .setPackage(MAPS_PACKAGE)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val started = runCatching {
+                if (maps.resolveActivity(carContext.packageManager) == null) error("Maps not installed")
+                carContext.startActivity(maps)
+            }.isSuccess
+            if (started) {
+                CarToast.makeText(carContext, "Starting Google Maps…", CarToast.LENGTH_SHORT).show()
+                return true
+            }
+            // Google Maps missing: fall back to the car's own navigation handoff.
+            return try {
+                carContext.startCarApp(
+                    Intent(CarContext.ACTION_NAVIGATE, Uri.parse("geo:0,0?q=" + Uri.encode(query)))
+                )
+                true
+            } catch (_: Exception) {
+                CarToast.makeText(carContext, "Install Google Maps to use directions", CarToast.LENGTH_LONG).show()
+                false
+            }
+        }
     }
 }
