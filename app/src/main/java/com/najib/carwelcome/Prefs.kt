@@ -48,6 +48,15 @@ class Prefs(context: Context) {
         get() = sp.getString("checkin_signin", null)?.ifBlank { null } ?: "Sign in with Darwinbox Credentials"
         set(v) = sp.edit().putString("checkin_signin", v.trim()).apply()
 
+    /** Clock in through Microsoft Edge (needed for Microsoft single sign-on). */
+    var checkInUseEdge: Boolean
+        get() = sp.getBoolean("checkin_edge", true)
+        set(v) = sp.edit().putBoolean("checkin_edge", v).apply()
+
+    var checkInSsoButton: String
+        get() = sp.getString("checkin_sso", null)?.ifBlank { null } ?: "Single Sign On"
+        set(v) = sp.edit().putString("checkin_sso", v.trim()).apply()
+
     var autoCheckIn: Boolean
         get() = sp.getBoolean("checkin_auto", false)
         set(v) = sp.edit().putBoolean("checkin_auto", v).apply()

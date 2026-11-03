@@ -28,6 +28,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: Prefs
     private lateinit var checkInStatus: TextView
+    private lateinit var edgeButton: Button
     private val main = Handler(Looper.getMainLooper())
 
     private lateinit var overlayButton: Button
@@ -40,6 +41,11 @@ class MainActivity : AppCompatActivity() {
             overlayButton.isEnabled = !ok
         }
         if (::checkInStatus.isInitialized) refreshStatus()
+        if (::edgeButton.isInitialized) {
+            val on = EdgeClicker.isEnabled(this)
+            edgeButton.text = if (on) "Edge tapping is on" else "Turn on Edge tapping (Accessibility settings)"
+            edgeButton.isEnabled = !on
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -107,20 +113,38 @@ class MainActivity : AppCompatActivity() {
         })
 
         column.addView(heading("Work clock-in"))
-        column.addView(label("The car's Clock in button opens your HR site hidden on this phone, signs in and presses Clock in. It never presses Clockout: if it sees Clockout you are already clocked in."))
+        column.addView(label("The car's Clock in button opens Darwinbox, signs in and presses Clock in. It never presses Clockout: if it sees Clockout you are already clocked in."))
         column.addView(label("Site address:"))
         column.addView(field(prefs.checkInUrl, "https://alfardan.darwinbox.com/") { prefs.checkInUrl = it })
+        column.addView(CheckBox(this).apply {
+            text = "Use Microsoft Edge (for Microsoft single sign-on). The phone must be unlocked when it runs."
+            isChecked = prefs.checkInUseEdge
+            setOnCheckedChangeListener { _, v -> prefs.checkInUseEdge = v }
+        })
+        edgeButton = Button(this).apply {
+            setOnClickListener { EdgeClicker.openSettings(this@MainActivity); toast("Tap Installed apps > Najeem Drive clock-in, and turn it on") }
+        }
+        column.addView(edgeButton)
+        column.addView(Button(this).apply {
+            text = "Open Darwinbox in Edge to sign in once"
+            setOnClickListener {
+                val edge = EdgeClicker.edgePackage(this@MainActivity)
+                if (edge == null) toast("Install Microsoft Edge first")
+                else startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(prefs.checkInUrl)).setPackage(edge))
+            }
+        })
+        column.addView(label("Without Edge (Darwinbox Credentials only):"))
         column.addView(label("Username (only for \"Sign in with Darwinbox Credentials\"; leave empty if you use Single Sign On):"))
         column.addView(field(Secrets.user(this), "Employee ID or email") { Secrets.setUser(this, it.trim()) })
         column.addView(label("Password (kept encrypted on this phone):"))
         column.addView(field(Secrets.password(this), "Password", password = true) { Secrets.setPassword(this, it) })
         column.addView(Button(this).apply {
-            text = "Open the site and sign in once"
+            text = "Open the site here and sign in once"
             setOnClickListener { startActivity(Intent(this@MainActivity, CheckInSetupActivity::class.java)) }
         })
         checkInStatus = label("")
         column.addView(Button(this).apply {
-            text = "Clock in now (hidden, like the car)"
+            text = "Clock in now (test, like the car)"
             setOnClickListener {
                 checkInStatus.text = "Working…"
                 if (!CheckIn.start(this@MainActivity) { checkInStatus.text = CheckIn.message; if (!CheckIn.isRunning) refreshStatus() }) {
@@ -138,6 +162,7 @@ class MainActivity : AppCompatActivity() {
         column.addView(field(prefs.checkInButton, "Clock in") { prefs.checkInButton = it })
         column.addView(field(prefs.checkInDoneButton, "Clockout") { prefs.checkInDoneButton = it })
         column.addView(field(prefs.checkInSignInButton, "Sign in with Darwinbox Credentials") { prefs.checkInSignInButton = it })
+        column.addView(field(prefs.checkInSsoButton, "Single Sign On") { prefs.checkInSsoButton = it })
 
         column.addView(heading("Setup"))
         column.addView(label(SETUP_TEXT))

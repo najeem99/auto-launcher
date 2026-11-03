@@ -16,6 +16,10 @@
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
         <package android:name="com.anthropic.claude" />
+        <package android:name="com.microsoft.emmx" />
+        <package android:name="com.microsoft.emmx.beta" />
+        <package android:name="com.microsoft.emmx.dev" />
+        <package android:name="com.microsoft.emmx.canary" />
         <package android:name="com.google.android.apps.maps" />
     </queries>
 
@@ -46,6 +50,19 @@
             android:name=".CheckInSetupActivity"
             android:exported="false"
             android:label="Work clock-in" />
+
+        <service
+            android:name=".EdgeClicker"
+            android:exported="false"
+            android:label="@string/edge_clicker_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/edge_clicker" />
+        </service>
 
         <service
             android:name=".car.DashboardService"
