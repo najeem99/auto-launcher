@@ -28,12 +28,8 @@ object DuaPlayer {
         }
     }
 
-    /**
-     * Start of each line in the built-in recording (ms). Found from the reciter's
-     * breathing pauses: takbirs, "wa inna ila rabbina", "Allahumma inna nas'aluka",
-     * "Allahumma hawwin", "Allahumma antas-sahib", "Allahumma inni a'udhu bika".
-     */
-    private val BUILT_IN_STARTS = listOf(0, 21_900, 24_500, 32_000, 36_200, 41_600)
+    /** Start of each phrase in the built-in recording (ms). */
+    private val BUILT_IN_STARTS = DuaSafar.LINES.mapIndexed { i, l -> if (i == 0) 0 else l.wordStarts.first() }
 
     /** A recording you added in the phone app; replaces the built-in one. */
     fun file(context: Context) = File(context.filesDir, "dua_al_safar.audio")
@@ -122,6 +118,18 @@ object DuaPlayer {
     fun lineAt(context: Context, positionMs: Int, durationMs: Int): Int {
         val starts = lineStarts(context, durationMs)
         var idx = 0
+        starts.forEachIndexed { i, s -> if (positionMs >= s) idx = i }
+        return idx
+    }
+
+    /**
+     * Word being recited inside line [line] of the built-in recording, or -1 when no
+     * word has started yet or a recording of your own is playing (no word timings).
+     */
+    fun wordAt(context: Context, line: Int, positionMs: Int): Int {
+        if (hasCustomRecording(context) || Prefs(context).duaTimings?.size == DuaSafar.LINES.size) return -1
+        val starts = DuaSafar.LINES.getOrNull(line)?.wordStarts ?: return -1
+        var idx = -1
         starts.forEachIndexed { i, s -> if (positionMs >= s) idx = i }
         return idx
     }

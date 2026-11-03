@@ -27,6 +27,14 @@ object Welcome {
         return DuaPlayer.lineAt(ctx, DuaPlayer.positionMs, DuaPlayer.durationMs)
     }
 
+    /** Word of [currentDuaLine] being recited (lights up on screen), or -1. */
+    val currentDuaWord: Int get() {
+        val ctx = appContext ?: return -1
+        if (!DuaPlayer.isActive) return -1
+        val pos = DuaPlayer.positionMs
+        return DuaPlayer.wordAt(ctx, DuaPlayer.lineAt(ctx, pos, DuaPlayer.durationMs), pos)
+    }
+
     /** Recitation progress 0..1, or -1 when not reciting. */
     val progress: Float get() {
         if (!DuaPlayer.isActive) return -1f

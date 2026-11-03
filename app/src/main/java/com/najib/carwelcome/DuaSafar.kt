@@ -1,39 +1,53 @@
 package com.najib.carwelcome
 
-/** Dua al-Safar (Sahih Muslim 1342), split into the lines shown on the car screen. */
+/**
+ * The dua in the bundled recording, split into the short phrases shown on the car
+ * screen. The recording is the dua for riding (Abu Dawud 2602, Tirmidhi 3446):
+ * Bismillah, Alhamdulillah, "Subhanalladhi sakhkhara lana hadha…", Alhamdulillah ×3,
+ * Allahu akbar ×3, then "Subhanaka Allahumma inni zalamtu nafsi…".
+ *
+ * [Line.wordStarts] is when each word starts in the bundled recording (ms), measured
+ * with speech recognition and the reciter's pauses. The words light up as they're recited.
+ */
 object DuaSafar {
-    data class Line(val arabic: String, val transliteration: String, val meaning: String)
+    data class Line(
+        val arabic: String,
+        val transliteration: String,
+        val meaning: String,
+        val wordStarts: List<Int>,
+    ) {
+        val words: List<String> get() = arabic.split(' ')
+    }
 
     val LINES = listOf(
+        Line("بِسْمِ اللَّهِ", "Bismillah", "In the name of Allah.", listOf(690, 1_100)),
+        Line("الْحَمْدُ لِلَّهِ", "Alhamdulillah", "All praise is for Allah.", listOf(3_020, 4_000)),
         Line(
-            "اللَّهُ أَكْبَرُ، اللَّهُ أَكْبَرُ، اللَّهُ أَكْبَرُ، سُبْحَانَ الَّذِي سَخَّرَ لَنَا هَذَا وَمَا كُنَّا لَهُ مُقْرِنِينَ",
-            "Allahu akbar (3x). Subhanalladhi sakhkhara lana hadha wa ma kunna lahu muqrinin",
-            "Allah is the Greatest. Glory be to the One who has placed this at our service, for we could never have done it ourselves.",
+            "سُبْحَانَ الَّذِي سَخَّرَ لَنَا هَذَا", "Subhanalladhi sakhkhara lana hadha",
+            "Glory be to the One who placed this at our service,", listOf(6_030, 6_900, 7_300, 8_200, 9_000),
         ),
         Line(
-            "وَإِنَّا إِلَى رَبِّنَا لَمُنْقَلِبُونَ",
-            "Wa inna ila rabbina lamunqalibun",
-            "And to our Lord we will surely return.",
+            "وَمَا كُنَّا لَهُ مُقْرِنِينَ", "wa ma kunna lahu muqrinin",
+            "for we could never have done it ourselves.", listOf(10_750, 11_480, 12_400, 13_000),
         ),
         Line(
-            "اللَّهُمَّ إِنَّا نَسْأَلُكَ فِي سَفَرِنَا هَذَا الْبِرَّ وَالتَّقْوَى، وَمِنَ الْعَمَلِ مَا تَرْضَى",
-            "Allahumma inna nas'aluka fi safarina hadha al-birra wat-taqwa, wa minal-'amali ma tarda",
-            "O Allah, we ask You on this journey for righteousness and piety, and deeds that please You.",
+            "وَإِنَّا إِلَى رَبِّنَا لَمُنْقَلِبُونَ", "Wa inna ila rabbina lamunqalibun",
+            "And to our Lord we will surely return.", listOf(15_400, 16_450, 16_900, 17_870),
         ),
+        Line("الْحَمْدُ لِلَّهِ", "Alhamdulillah", "All praise is for Allah.", listOf(22_020, 23_200)),
+        Line("الْحَمْدُ لِلَّهِ", "Alhamdulillah", "All praise is for Allah.", listOf(24_650, 25_850)),
+        Line("الْحَمْدُ لِلَّهِ", "Alhamdulillah", "All praise is for Allah.", listOf(27_370, 28_550)),
+        Line("اللَّهُ أَكْبَرُ", "Allahu akbar", "Allah is the Greatest.", listOf(30_040, 30_750)),
+        Line("اللَّهُ أَكْبَرُ", "Allahu akbar", "Allah is the Greatest.", listOf(32_130, 32_850)),
+        Line("اللَّهُ أَكْبَرُ", "Allahu akbar", "Allah is the Greatest.", listOf(34_180, 34_900)),
         Line(
-            "اللَّهُمَّ هَوِّنْ عَلَيْنَا سَفَرَنَا هَذَا وَاطْوِ عَنَّا بُعْدَهُ",
-            "Allahumma hawwin 'alayna safarana hadha watwi 'anna bu'dah",
-            "O Allah, make this journey easy for us and shorten its distance.",
+            "سُبْحَانَكَ اللَّهُمَّ إِنِّي ظَلَمْتُ نَفْسِي", "Subhanaka Allahumma inni zalamtu nafsi",
+            "Glory be to You, O Allah. I have wronged myself,", listOf(36_360, 37_360, 38_500, 40_100, 41_200),
         ),
+        Line("فَاغْفِرْ لِي", "faghfir li", "so forgive me,", listOf(42_810, 43_390)),
         Line(
-            "اللَّهُمَّ أَنْتَ الصَّاحِبُ فِي السَّفَرِ، وَالْخَلِيفَةُ فِي الأَهْلِ",
-            "Allahumma antas-sahibu fis-safar, wal-khalifatu fil-ahl",
-            "O Allah, You are the Companion on the journey and the Guardian of the family.",
-        ),
-        Line(
-            "اللَّهُمَّ إِنِّي أَعُوذُ بِكَ مِنْ وَعْثَاءِ السَّفَرِ، وَكَآبَةِ الْمَنْظَرِ، وَسُوءِ الْمُنْقَلَبِ فِي الْمَالِ وَالأَهْلِ",
-            "Allahumma inni a'udhu bika min wa'tha'is-safar, wa ka'abatil-manzar, wa su'il-munqalabi fil-mali wal-ahl",
-            "O Allah, I seek refuge in You from the hardship of travel, from distressing sights, and from an ill return to property and family.",
+            "فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ", "fa innahu la yaghfirudh-dhunuba illa ant",
+            "for none forgives sins except You.", listOf(44_920, 46_400, 46_900, 47_700, 48_900, 50_600),
         ),
     )
 }
