@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
             overlayButton.text = if (ok) "Allowed: Maps and Claude can open" else "Allow opening Maps and Claude"
             overlayButton.isEnabled = !ok
         }
+        if (::checkInStatus.isInitialized) refreshStatus()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -286,11 +287,6 @@ class MainActivity : AppCompatActivity() {
         syncPanel.visibility = View.GONE
         syncButton.isEnabled = true
         refreshStatus()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (::checkInStatus.isInitialized) refreshStatus()
     }
 
     private fun field(value: String, hint: String, password: Boolean = false, save: (String) -> Unit) = EditText(this).apply {
