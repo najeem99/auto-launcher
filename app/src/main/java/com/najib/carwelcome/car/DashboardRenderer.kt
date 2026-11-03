@@ -17,6 +17,9 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
+import android.text.style.ForegroundColorSpan
+import android.text.Spanned
+import android.text.SpannableString
 import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
@@ -153,7 +156,7 @@ class DashboardRenderer(
         return listOf(
             c.width, c.height, visibleArea,
             SimpleDateFormat("yyyyMMddHHmm", Locale.US).format(Date()), prefs.use24Hour, prefs.name,
-            Welcome.isGreeting, Welcome.isReciting, DuaPlayer.isPlaying, Welcome.currentDuaLine, Welcome.duaButton(), c.dpi,
+            Welcome.isGreeting, Welcome.isReciting, DuaPlayer.isPlaying, Welcome.currentDuaLine, Welcome.currentDuaWord, Welcome.duaButton(), c.dpi,
             if (p < 0f) -1 else (p * 400).toInt(),
             w?.tempC, w?.code, w?.let { (System.currentTimeMillis() - it.fetchedAt) / 60000 },
         ).joinToString("|")
@@ -219,8 +222,11 @@ class DashboardRenderer(
         val gap = u * 0.026f
         val speaking = Welcome.isSpeaking
 
-        // Lyrics card along the bottom; bigger when the screen is smaller.
-        val duaH = r.height() * (if (full) 0.32f else 0.42f)
+        // Lyrics card along the bottom; it grows while the dua plays, and is bigger on smaller screens.
+        val duaH = r.height() * when {
+            Welcome.isReciting -> if (full) 0.50f else 0.58f
+            else -> if (full) 0.32f else 0.42f
+        }
         val duaRect = RectF(r.left, r.bottom - duaH, r.right, r.bottom)
         drawDuaCard(canvas, duaRect, u, speaking)
         val upperBottom = duaRect.top - gap
@@ -528,38 +534,55 @@ class DashboardRenderer(
     }
 
     /**
-     * The lyrics: the line being recited in large Arabic (up to 2 lines, sized to
-     * fill [r]) and the next line smaller underneath when there is room.
+     * The lyrics: the phrase being recited in large Arabic, sized to fill [r], with each
+     * word lighting up as the reciter says it. The transliteration sits underneath when
+     * there is room.
      */
     private fun drawLyrics(canvas: Canvas, r: RectF, bare: Boolean) {
         val reciting = Welcome.isReciting
         val lineIdx = Welcome.currentDuaLine.takeIf { it in DuaSafar.LINES.indices } ?: 0
         val dua = DuaSafar.LINES[lineIdx]
-        val next = DuaSafar.LINES.getOrNull(lineIdx + 1)?.takeIf { reciting }
+        val word = if (reciting) Welcome.currentDuaWord else -1
         val width = r.width().toInt().coerceAtLeast(10)
 
+        // Spoken words in white, the current word in gold, words still to come dimmed.
+        val styled = SpannableString(dua.arabic)
+        if (reciting && word >= 0) {
+            var at = 0
+            dua.words.forEachIndexed { i, w ->
+                val color = when {
+                    i == word -> sand
+                    i < word -> ink
+                    else -> ink3
+                }
+                styled.setSpan(ForegroundColorSpan(color), at, at + w.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                at += w.length + 1
+            }
+        }
         val ar = TextPaint(textFlags).apply {
-            typeface = serif; color = if (reciting) ink else ink2
-            textSize = r.height() * (if (next != null) 0.36f else 0.42f)
+            typeface = serif
+            color = if (reciting && word < 0) ink3 else if (reciting) ink else ink2
+            textSize = r.height() * 0.62f
         }
-        val nx = TextPaint(textFlags).apply { typeface = serif; color = ink3; textAlign = Paint.Align.RIGHT }
+        val tr = TextPaint(textFlags).apply { typeface = regular; color = ink2; textAlign = Paint.Align.RIGHT }
         var arLayout: StaticLayout
-        var nextH: Float
+        var subH: Float
         while (true) {
-            nx.textSize = ar.textSize * 0.5f
-            nextH = if (next != null) nx.textSize * 1.6f else 0f
-            arLayout = layout(dua.arabic, ar, width, Layout.Alignment.ALIGN_OPPOSITE, 2)
-            if (arLayout.height + nextH <= r.height() || ar.textSize < 10f) break
-            ar.textSize *= 0.93f
+            tr.textSize = max(ar.textSize * 0.26f, 11 * density)
+            subH = if (reciting) tr.textSize * 1.7f else 0f
+            arLayout = layout(styled, ar, width, Layout.Alignment.ALIGN_OPPOSITE, 2)
+            if (arLayout.height + subH <= r.height() || ar.textSize < 10f) break
+            ar.textSize *= 0.94f
         }
-        val y0 = r.centerY() - (arLayout.height + nextH) / 2
+        if (subH > 0f && arLayout.height + subH > r.height()) subH = 0f
+        val y0 = r.centerY() - (arLayout.height + subH) / 2
         canvas.save()
         canvas.translate(r.left, y0)
         arLayout.draw(canvas)
         canvas.restore()
-        if (next != null) {
-            val nextText = TextUtils.ellipsize(next.arabic, nx, r.width(), TextUtils.TruncateAt.END).toString()
-            canvas.drawText(nextText, r.right, y0 + arLayout.height + nx.textSize * 1.3f, nx)
+        if (subH > 0f) {
+            val sub = TextUtils.ellipsize(dua.transliteration, tr, r.width(), TextUtils.TruncateAt.END).toString()
+            canvas.drawText(sub, r.right, y0 + arLayout.height + tr.textSize * 1.35f, tr)
         }
         if (bare) {
             val p = Welcome.progress
@@ -573,7 +596,7 @@ class DashboardRenderer(
         }
     }
 
-    private fun layout(s: String, p: TextPaint, width: Int, align: Layout.Alignment, maxLines: Int): StaticLayout =
+    private fun layout(s: CharSequence, p: TextPaint, width: Int, align: Layout.Alignment, maxLines: Int): StaticLayout =
         StaticLayout.Builder.obtain(s, 0, s.length, p, width)
             .setAlignment(align)
             .setMaxLines(maxLines)
