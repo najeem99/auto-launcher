@@ -189,7 +189,7 @@ class DashboardRenderer(
         return bmp
     }
 
-    enum class Tile { DUA, MAP, CLAUDE, YOUTUBE, HOME, WORK, CHECKIN }
+    enum class Tile { DUA, MAP, CLAUDE, UTILITIES, YOUTUBE, HOME, WORK, CHECKIN }
 
     /** Which layout fits the space Android Auto gives us (full screen or a split-screen panel). */
     private enum class Mode { FULL, MEDIUM, COMPACT }
@@ -289,7 +289,7 @@ class DashboardRenderer(
         val tiles = buildList {
             if (Welcome.duaButton() != Welcome.DuaButton.HIDDEN) add(Tile.DUA)
             add(Tile.MAP)
-            add(Tile.CLAUDE)
+            add(Tile.UTILITIES)
             add(Tile.YOUTUBE)
             if (prefs.checkInUrl.isNotBlank()) add(Tile.CHECKIN)
         }
@@ -425,6 +425,7 @@ class DashboardRenderer(
                 Triple("Pause", R.drawable.ic_pause, true) else Triple("Dua", R.drawable.ic_play, true)
             Tile.MAP -> Triple("Maps", R.drawable.ic_map, false)
             Tile.CLAUDE -> Triple("Claude", R.drawable.ic_claude, false)
+            Tile.UTILITIES -> Triple("Utilities", R.drawable.ic_grid, false)
             Tile.YOUTUBE -> Triple("YouTube", R.drawable.ic_video, false)
             Tile.HOME -> Triple("Home", R.drawable.ic_home, false)
             Tile.WORK -> Triple("Office", R.drawable.ic_work, false)
@@ -444,6 +445,7 @@ class DashboardRenderer(
         icon?.setTint(when (tile) {
             Tile.CLAUDE -> Color.parseColor("#D97757")
             Tile.MAP -> teal
+            Tile.UTILITIES -> teal
             Tile.YOUTUBE -> Color.parseColor("#FF5A5A")
             Tile.CHECKIN -> if (CheckIn.phase == CheckIn.Phase.FAILED) Color.parseColor("#FF8A7A") else teal
             else -> fg

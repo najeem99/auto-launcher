@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Najeem Drive</string>
+    <string name="edge_clicker_label">Najeem Drive clock-in</string>
+    <string name="edge_clicker_description">Lets the Najeem Drive Clock in button open Darwinbox in Microsoft Edge and tap Single Sign On, your Microsoft account and Clock in for you. It only works inside Edge and never taps Clockout.</string>
 </resources>

@@ -1,5 +1,6 @@
 package com.najib.carwelcome.car
 
+import androidx.activity.OnBackPressedCallback
 import androidx.annotation.DrawableRes
 import androidx.car.app.CarContext
 import androidx.car.app.CarToast
@@ -25,8 +26,18 @@ class YouTubeScreen(carContext: CarContext, hostSaysParked: Boolean = false) : S
     private val parked = ParkedDetector(carContext)
     private val layer = YouTubeLayer(carContext, YouTubeLayer.HOME, parked)
 
+    /** The car's back button leaves full screen first, instead of closing YouTube. */
+    private val backFromFullScreen = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() = layer.exitFullScreen()
+    }
+
     init {
-        parked.forcedParked = hostSaysParked
+        parked.forcedParked = hostSaysParked || ParkedDetector.manualParked
+        carContext.onBackPressedDispatcher.addCallback(this, backFromFullScreen)
+        layer.onFullScreenChanged = {
+            backFromFullScreen.isEnabled = layer.fullScreen
+            invalidate()
+        }
     }
 
     init {
@@ -49,6 +60,18 @@ class YouTubeScreen(carContext: CarContext, hostSaysParked: Boolean = false) : S
     }
 
     override fun onGetTemplate(): Template {
+        if (layer.fullScreen) {
+            // Android Auto needs at least one button; keep just a small "exit full screen".
+            val exit = ActionStrip.Builder()
+                .addAction(
+                    Action.Builder()
+                        .setIcon(icon(R.drawable.ic_fullscreen_exit))
+                        .setOnClickListener { layer.exitFullScreen() }
+                        .build()
+                )
+                .build()
+            return NavigationTemplate.Builder().setActionStrip(exit).build()
+        }
         val strip = ActionStrip.Builder()
             .addAction(
                 Action.Builder()
@@ -70,6 +93,7 @@ class YouTubeScreen(carContext: CarContext, hostSaysParked: Boolean = false) : S
                     .setIcon(icon(if (parked.forcedParked) R.drawable.ic_parked_on else R.drawable.ic_parked))
                     .setOnClickListener {
                         parked.forcedParked = !parked.forcedParked
+                        ParkedDetector.manualParked = parked.forcedParked
                         CarToast.makeText(
                             carContext,
                             if (parked.forcedParked) "Marked as parked. Video still pauses above 18 km/h."
@@ -91,6 +115,16 @@ class YouTubeScreen(carContext: CarContext, hostSaysParked: Boolean = false) : S
             .addAction(Action.PAN) // lets a finger drag scroll the page
             .addAction(Action.Builder().setIcon(icon(R.drawable.ic_up)).setOnClickListener { layer.pageUp() }.build())
             .addAction(Action.Builder().setIcon(icon(R.drawable.ic_down)).setOnClickListener { layer.pageDown() }.build())
+            .addAction(
+                Action.Builder()
+                    .setIcon(icon(R.drawable.ic_fullscreen))
+                    .setOnClickListener {
+                        layer.enterFullScreen { ok ->
+                            if (!ok) CarToast.makeText(carContext, "Open a video first", CarToast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .build()
+            )
             .build()
         return NavigationTemplate.Builder()
             .setActionStrip(strip)
