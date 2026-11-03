@@ -67,6 +67,17 @@ object CheckIn {
         if (isRunning) { listeners += onUpdate; return true }
         listeners = mutableListOf(onUpdate)
         update(Phase.RUNNING, "Opening the site…")
+        if (prefs.checkInUseEdge) {
+            main.post {
+                val clicker = EdgeClicker.instance
+                if (clicker == null) {
+                    update(Phase.FAILED, "Turn on Najeem Drive clock-in in the phone's Accessibility settings")
+                } else {
+                    clicker.run(prefs.checkInUrl) { ph, msg -> update(ph, msg) }
+                }
+            }
+            return true
+        }
         main.post {
             val h = try { HiddenBrowser(context) } catch (e: Exception) {
                 update(Phase.FAILED, "Couldn't start the browser"); return@post
