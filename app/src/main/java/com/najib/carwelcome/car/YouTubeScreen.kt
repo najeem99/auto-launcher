@@ -26,7 +26,7 @@ class YouTubeScreen(carContext: CarContext, hostSaysParked: Boolean = false) : S
     private val layer = YouTubeLayer(carContext, YouTubeLayer.HOME, parked)
 
     init {
-        parked.forcedParked = hostSaysParked
+        parked.forcedParked = hostSaysParked || ParkedDetector.manualParked
     }
 
     init {
@@ -70,6 +70,7 @@ class YouTubeScreen(carContext: CarContext, hostSaysParked: Boolean = false) : S
                     .setIcon(icon(if (parked.forcedParked) R.drawable.ic_parked_on else R.drawable.ic_parked))
                     .setOnClickListener {
                         parked.forcedParked = !parked.forcedParked
+                        ParkedDetector.manualParked = parked.forcedParked
                         CarToast.makeText(
                             carContext,
                             if (parked.forcedParked) "Marked as parked. Video still pauses above 18 km/h."
