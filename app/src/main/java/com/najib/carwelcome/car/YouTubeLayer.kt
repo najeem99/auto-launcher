@@ -39,6 +39,13 @@ class YouTubeLayer(
     var currentUrl: String = startUrl
         private set
 
+    /** Video fills the whole car screen, page chrome hidden. */
+    var fullScreen = false
+        private set
+
+    /** Called on the main thread whenever [fullScreen] changes. */
+    var onFullScreenChanged: (() -> Unit)? = null
+
     private var display: VirtualDisplay? = null
     private var presentation: Presentation? = null
     private var root: FrameLayout? = null
@@ -47,6 +54,8 @@ class YouTubeLayer(
     private var fullscreenView: View? = null
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
     private var visible: Rect? = null
+    private var surfaceW = 0
+    private var surfaceH = 0
     private var state = ParkedDetector.State.CHECKING
     private val handler = Handler(Looper.getMainLooper())
 
@@ -60,6 +69,8 @@ class YouTubeLayer(
     override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
         val surface = surfaceContainer.surface ?: return
         detach()
+        surfaceW = surfaceContainer.width
+        surfaceH = surfaceContainer.height
         try {
             val dm = carContext.getSystemService(DisplayManager::class.java)
             val vd = dm.createVirtualDisplay(
@@ -71,7 +82,7 @@ class YouTubeLayer(
             p.setContentView(buildViews(p))
             p.show()
             presentation = p
-            visible?.let { applyInsets(it, surfaceContainer) }
+            applyPadding()
             state = ParkedDetector.State.CHECKING
             applyState(parked.state(), force = true)
             handler.removeCallbacks(watch)
@@ -83,18 +94,56 @@ class YouTubeLayer(
 
     override fun onVisibleAreaChanged(visibleArea: Rect) {
         visible = Rect(visibleArea)
-        root?.let { r ->
-            r.setPadding(visibleArea.left, visibleArea.top,
-                (r.width - visibleArea.right).coerceAtLeast(0), (r.height - visibleArea.bottom).coerceAtLeast(0))
-        }
+        applyPadding()
     }
 
     override fun onStableAreaChanged(stableArea: Rect) {}
 
     override fun onSurfaceDestroyed(surfaceContainer: SurfaceContainer) = detach()
 
-    private fun applyInsets(area: Rect, c: SurfaceContainer) {
-        root?.setPadding(area.left, area.top, (c.width - area.right).coerceAtLeast(0), (c.height - area.bottom).coerceAtLeast(0))
+    /** Keeps the page clear of Android Auto's buttons, except in full screen. */
+    private fun applyPadding() {
+        val r = root ?: return
+        val area = visible
+        if (fullScreen || area == null || surfaceW <= 0) {
+            r.setPadding(0, 0, 0, 0)
+        } else {
+            r.setPadding(area.left, area.top,
+                (surfaceW - area.right).coerceAtLeast(0), (surfaceH - area.bottom).coerceAtLeast(0))
+        }
+    }
+
+    /**
+     * Stretches the playing video over the whole car screen. [onResult] gets false
+     * (and nothing changes) when the page has no video to show.
+     */
+    fun enterFullScreen(onResult: (Boolean) -> Unit) {
+        val w = web ?: return onResult(false)
+        w.evaluateJavascript(FS_ON_JS) { res ->
+            val ok = res?.contains("ok") == true
+            if (ok && web === w) setFullScreen(true)
+            onResult(ok && web === w)
+        }
+    }
+
+    fun exitFullScreen() {
+        fullscreenView?.let { v ->
+            fullscreenCallback?.onCustomViewHidden()
+            // In case the page didn't call onHideCustomView itself.
+            (v.parent as? ViewGroup)?.removeView(v)
+            fullscreenView = null
+            fullscreenCallback = null
+            web?.visibility = View.VISIBLE
+        }
+        web?.evaluateJavascript(FS_OFF_JS, null)
+        setFullScreen(false)
+    }
+
+    private fun setFullScreen(on: Boolean) {
+        if (fullScreen == on) return
+        fullScreen = on
+        applyPadding()
+        onFullScreenChanged?.invoke()
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -118,6 +167,8 @@ class YouTubeLayer(
                 override fun onPageFinished(view: WebView, url: String) {
                     currentUrl = url
                     if (state != ParkedDetector.State.PARKED) pauseVideo()
+                    // A reload drops the injected style; put it back.
+                    if (fullScreen && fullscreenView == null) view.evaluateJavascript(FS_ON_JS, null)
                 }
             }
             webChromeClient = object : WebChromeClient() {
@@ -128,12 +179,15 @@ class YouTubeLayer(
                     frame.addView(view, 0, FrameLayout.LayoutParams(MATCH, MATCH))
                     this@apply.visibility = View.INVISIBLE
                     notice?.bringToFront()
+                    setFullScreen(true) // YouTube's own full-screen button
                 }
                 override fun onHideCustomView() {
                     fullscreenView?.let { frame.removeView(it) }
                     fullscreenView = null
                     fullscreenCallback = null
                     this@apply.visibility = View.VISIBLE
+                    this@apply.evaluateJavascript(FS_OFF_JS, null)
+                    setFullScreen(false)
                 }
             }
             loadUrl(currentUrl)
@@ -187,7 +241,7 @@ class YouTubeLayer(
     }
 
     override fun onScroll(distanceX: Float, distanceY: Float) {
-        if (state != ParkedDetector.State.PARKED) return
+        if (state != ParkedDetector.State.PARKED || fullScreen) return
         scrollBy(distanceY)
     }
 
@@ -210,7 +264,7 @@ class YouTubeLayer(
 
     /** Back inside YouTube; returns false when there is nothing to go back to. */
     fun goBack(): Boolean {
-        fullscreenView?.let { fullscreenCallback?.onCustomViewHidden(); return true }
+        if (fullScreen) { exitFullScreen(); return true }
         val w = web ?: return false
         if (!w.canGoBack()) return false
         w.goBack()
@@ -242,6 +296,61 @@ class YouTubeLayer(
     companion object {
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         const val HOME = "https://m.youtube.com/"
+
+        /**
+         * Pins YouTube's player to the whole viewport and hides the page around it.
+         * Re-marks the player every second, since YouTube swaps elements as it
+         * moves between videos. Returns "ok", or "novideo" when there is nothing to show.
+         */
+        private val FS_ON_JS = """
+(function(){
+  function player(){
+    var v=document.querySelector('video');
+    return document.querySelector('#movie_player')||(v&&v.closest('.html5-video-player'))||(v&&v.parentElement)||null;
+  }
+  if(!player()) return 'novideo';
+  var s=document.getElementById('najeem-fs-style');
+  if(!s){
+    s=document.createElement('style');s.id='najeem-fs-style';
+    s.textContent=
+      'html,body{overflow:hidden!important;background:#000!important}'+
+      '.najeem-fs-anc{transform:none!important;filter:none!important;contain:none!important;will-change:auto!important;z-index:auto!important}'+
+      '.najeem-fs{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;transform:none!important;z-index:2147483647!important;background:#000!important}'+
+      '.najeem-fs .html5-video-container{position:absolute!important;left:0!important;top:0!important;width:100%!important;height:100%!important}'+
+      '.najeem-fs video{position:absolute!important;left:0!important;top:0!important;width:100%!important;height:100%!important;object-fit:contain!important;background:#000!important}'+
+      'ytm-mobile-topbar-renderer,header,ytm-pivot-bar-renderer,.mobile-topbar-header{display:none!important}';
+    (document.head||document.documentElement).appendChild(s);
+  }
+  function mark(){
+    var p=player(); if(!p) return;
+    if(!p.classList.contains('najeem-fs')){
+      document.querySelectorAll('.najeem-fs').forEach(function(e){e.classList.remove('najeem-fs');});
+      document.querySelectorAll('.najeem-fs-anc').forEach(function(e){e.classList.remove('najeem-fs-anc');});
+      p.classList.add('najeem-fs');
+      for(var a=p.parentElement;a&&a!==document.body&&a!==document.documentElement;a=a.parentElement) a.classList.add('najeem-fs-anc');
+      window.dispatchEvent(new Event('resize'));
+    }
+  }
+  mark();
+  window.scrollTo(0,0);
+  if(window.__najeemFs) clearInterval(window.__najeemFs);
+  window.__najeemFs=setInterval(mark,1000);
+  setTimeout(function(){window.dispatchEvent(new Event('resize'));},300);
+  return 'ok';
+})();
+"""
+
+        private val FS_OFF_JS = """
+(function(){
+  if(window.__najeemFs){clearInterval(window.__najeemFs);window.__najeemFs=0;}
+  var s=document.getElementById('najeem-fs-style'); if(s) s.remove();
+  document.querySelectorAll('.najeem-fs').forEach(function(e){e.classList.remove('najeem-fs');});
+  document.querySelectorAll('.najeem-fs-anc').forEach(function(e){e.classList.remove('najeem-fs-anc');});
+  window.dispatchEvent(new Event('resize'));
+  return 'off';
+})();
+"""
+
         fun searchUrl(q: String) = "https://m.youtube.com/results?search_query=" + android.net.Uri.encode(q)
     }
 }
