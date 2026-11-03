@@ -61,8 +61,13 @@ class DashboardRenderer(
     private val tick = object : Runnable {
         override fun run() {
             onTick()
+            Weather.refresh(carContext) // no-op unless the reading is 15 minutes old
+            if (lyricsFull && !Welcome.isSpeaking) lyricsFull = false
             draw()
-            handler.postDelayed(this, if (Welcome.isSpeaking) 250L else 1000L)
+            val now = System.currentTimeMillis()
+            // Land just after each new second so the clock's seconds tick evenly.
+            val delay = if (Welcome.isSpeaking) 250L else 1000L - now % 1000L + 15L
+            handler.postDelayed(this, delay)
         }
     }
 
@@ -80,7 +85,8 @@ class DashboardRenderer(
 
     // The same fonts as the mockup, bundled in assets/fonts (SIL Open Font License).
     private val light = font("Sora.ttf", 200, Typeface.create("sans-serif-light", Typeface.NORMAL))      // clock
-    private val light300 = font("Sora.ttf", 300, light)                                                   // temperature
+    private val light300 = font("Sora.ttf", 300, light)
+    private val clockFont = font("Sora.ttf", 600, Typeface.create("sans-serif-medium", Typeface.NORMAL)) // bold clock                                                   // temperature
     private val regular = font("Manrope.ttf", 500, Typeface.create("sans-serif", Typeface.NORMAL))
     private val medium = font("Manrope.ttf", 600, Typeface.create("sans-serif-medium", Typeface.NORMAL))
     private val bold = font("Manrope.ttf", 700, medium)
@@ -155,10 +161,10 @@ class DashboardRenderer(
         val w = Weather.latest
         return listOf(
             c.width, c.height, visibleArea,
-            SimpleDateFormat("yyyyMMddHHmm", Locale.US).format(Date()), prefs.use24Hour, prefs.name,
+            SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(Date()), lyricsFull, DuaPlayer.completedThisDrive, prefs.use24Hour, prefs.name,
             Welcome.isGreeting, Welcome.isReciting, DuaPlayer.isPlaying, Welcome.currentDuaLine, Welcome.currentDuaWord, Welcome.duaButton(), c.dpi,
             if (p < 0f) -1 else (p * 400).toInt(),
-            w?.tempC, w?.code, w?.let { (System.currentTimeMillis() - it.fetchedAt) / 60000 },
+            w?.tempC, w?.code, w?.isDay, w?.place, w?.let { (System.currentTimeMillis() - it.fetchedAt) / 60000 },
         ).joinToString("|")
     }
 
@@ -179,17 +185,30 @@ class DashboardRenderer(
         return bmp
     }
 
-    enum class Tile { DUA, MAP, CLAUDE, YOUTUBE }
+    enum class Tile { DUA, MAP, CLAUDE, YOUTUBE, HOME, WORK }
 
     /** Which layout fits the space Android Auto gives us (full screen or a split-screen panel). */
     private enum class Mode { FULL, MEDIUM, COMPACT }
 
     private var density = 1f
     private val tileRects = mutableMapOf<Tile, RectF>()
+    /** Where the lyrics card is, for taps. */
+    private var lyricsRect: RectF? = null
+    /** Lyrics shown over the whole screen (tap the lyrics card while the dua plays). */
+    private var lyricsFull = false
 
-    /** Taps on the big buttons in the compact layout. */
+    /** Taps: the big buttons, and the lyrics card to open or close full-screen lyrics. */
     override fun onClick(x: Float, y: Float) {
-        tileRects.entries.firstOrNull { it.value.contains(x, y) }?.let { onTile(it.key) }
+        if (lyricsFull) {
+            lyricsFull = false
+            draw()
+            return
+        }
+        tileRects.entries.firstOrNull { it.value.contains(x, y) }?.let { onTile(it.key); return }
+        if (Welcome.isSpeaking && lyricsRect?.contains(x, y) == true) {
+            lyricsFull = true
+            draw()
+        }
     }
 
     private fun paintDashboard(canvas: Canvas, w: Int, h: Int) {
@@ -197,6 +216,7 @@ class DashboardRenderer(
         canvas.drawBitmap(backgroundFor(w, h), 0f, 0f, null)
         paint.shader = null
         tileRects.clear()
+        lyricsRect = null
 
         val area = visibleArea?.takeIf { !it.isEmpty } ?: Rect(0, 0, w, h)
         density = ((container?.dpi ?: 160) / 160f).coerceAtLeast(0.75f)
@@ -210,8 +230,9 @@ class DashboardRenderer(
         val u = min(area.width(), (area.height() * 1.67f).toInt()).toFloat() // ~width of a 5:3 box
         val pad = if (mode == Mode.COMPACT) 12 * density else u * 0.034f
         val inner = RectF(area.left + pad, area.top + pad, area.right - pad, area.bottom - pad)
-        when (mode) {
-            Mode.COMPACT -> paintCompact(canvas, inner)
+        when {
+            lyricsFull && Welcome.isSpeaking -> paintFullLyrics(canvas, inner)
+            mode == Mode.COMPACT -> paintCompact(canvas, inner)
             else -> paintWide(canvas, inner, u, mode, wDp)
         }
     }
@@ -222,14 +243,22 @@ class DashboardRenderer(
         val gap = u * 0.026f
         val speaking = Welcome.isSpeaking
 
-        // Lyrics card along the bottom; it grows while the dua plays, and is bigger on smaller screens.
-        val duaH = r.height() * when {
+        // Bottom row: the lyrics card until the dua has played, then Office/Home shortcuts
+        // so the clock gets the room. The card grows while the dua plays.
+        val showDua = speaking || !DuaPlayer.completedThisDrive
+        val bottomH = r.height() * when {
+            !showDua -> if (full) 0.22f else 0.28f
             Welcome.isReciting -> if (full) 0.50f else 0.58f
             else -> if (full) 0.32f else 0.42f
         }
-        val duaRect = RectF(r.left, r.bottom - duaH, r.right, r.bottom)
-        drawDuaCard(canvas, duaRect, u, speaking)
-        val upperBottom = duaRect.top - gap
+        val bottomRect = RectF(r.left, r.bottom - bottomH, r.right, r.bottom)
+        if (showDua) {
+            drawDuaCard(canvas, bottomRect, u, speaking)
+            lyricsRect = bottomRect
+        } else {
+            drawPlaces(canvas, bottomRect, u)
+        }
+        val upperBottom = bottomRect.top - gap
 
         // Greeting row only on the full layout.
         val greetH = if (full) u * 0.06f else 0f
@@ -286,6 +315,76 @@ class DashboardRenderer(
         }
     }
 
+    /**
+     * Office and Home shortcuts (Google Maps directions). Office comes first on
+     * weekday mornings (Mon–Fri, 7–11 AM); Home comes first the rest of the time.
+     */
+    private fun drawPlaces(canvas: Canvas, r: RectF, u: Float) {
+        val gap = u * 0.022f
+        val c = java.util.Calendar.getInstance()
+        val weekday = c.get(java.util.Calendar.DAY_OF_WEEK) in java.util.Calendar.MONDAY..java.util.Calendar.FRIDAY
+        val morning = c.get(java.util.Calendar.HOUR_OF_DAY) in 7..10
+        val order = if (weekday && morning) listOf(Tile.WORK, Tile.HOME) else listOf(Tile.HOME, Tile.WORK)
+        val w = (r.width() - gap) / 2
+        order.forEachIndexed { i, t ->
+            val rect = RectF(r.left + i * (w + gap), r.top, r.left + i * (w + gap) + w, r.bottom)
+            drawPlaceChip(canvas, rect, u, t, primary = i == 0)
+            tileRects[t] = rect
+        }
+    }
+
+    private fun drawPlaceChip(canvas: Canvas, r: RectF, u: Float, tile: Tile, primary: Boolean) {
+        val radius = u * 0.022f
+        paint.color = if (primary) Color.argb(46, 91, 209, 193) else cardFill
+        canvas.drawRoundRect(r, radius, radius, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = if (primary) 2f else 1f
+        paint.color = if (primary) Color.argb(150, 91, 209, 193) else line
+        canvas.drawRoundRect(r, radius, radius, paint)
+        paint.style = Paint.Style.FILL
+        val pad = r.height() * 0.22f
+        val iconSize = min(r.height() * 0.5f, u * 0.07f)
+        val icon = carContext.getDrawable(if (tile == Tile.WORK) R.drawable.ic_work else R.drawable.ic_home)?.mutate()
+        icon?.setTint(if (primary) teal else ink2)
+        val iy = r.centerY() - iconSize / 2
+        icon?.setBounds((r.left + pad).toInt(), iy.toInt(), (r.left + pad + iconSize).toInt(), (iy + iconSize).toInt())
+        icon?.draw(canvas)
+        val tx = r.left + pad + iconSize + u * 0.02f
+        val title = if (tile == Tile.WORK) "Office" else "Home"
+        text.textAlign = Paint.Align.LEFT
+        text.typeface = bold
+        text.textSize = min(r.height() * 0.28f, u * 0.04f)
+        text.color = ink
+        canvas.drawText(title, tx, r.centerY() - text.textSize * 0.05f, text)
+        val titleSize = text.textSize
+        text.typeface = regular
+        text.textSize = titleSize * 0.55f
+        text.color = ink2
+        canvas.drawText("Directions in Google Maps", tx, r.centerY() + titleSize * 0.85f, text)
+    }
+
+    /** The lyrics over the whole screen. Any tap closes them. */
+    private fun paintFullLyrics(canvas: Canvas, r: RectF) {
+        val d = density
+        text.textAlign = Paint.Align.CENTER
+        text.typeface = bold
+        text.textSize = max(12 * d, r.height() * 0.04f)
+        text.color = sand
+        text.letterSpacing = 0.14f
+        val idx = Welcome.currentDuaLine.takeIf { it in DuaSafar.LINES.indices } ?: 0
+        val head = if (Welcome.isGreeting) "WELCOME" else "DUA AL-SAFAR  ·  ${idx + 1} / ${DuaSafar.LINES.size}"
+        canvas.drawText(head, r.centerX(), r.top + text.textSize, text)
+        text.letterSpacing = 0f
+        text.typeface = regular
+        text.textSize = max(11 * d, r.height() * 0.032f)
+        text.color = ink3
+        canvas.drawText("Tap anywhere to close", r.centerX(), r.bottom - text.textSize * 0.4f, text)
+        text.textAlign = Paint.Align.LEFT
+        val top = r.top + r.height() * 0.09f
+        val bottom = r.bottom - r.height() * 0.08f
+        drawLyrics(canvas, RectF(r.left, top, r.right, bottom), bare = true)
+    }
+
     private fun drawTile(canvas: Canvas, r: RectF, tile: Tile) {
         val d = density
         val radius = 16 * d
@@ -295,6 +394,8 @@ class DashboardRenderer(
             Tile.MAP -> Triple("Maps", R.drawable.ic_map, false)
             Tile.CLAUDE -> Triple("Claude", R.drawable.ic_claude, false)
             Tile.YOUTUBE -> Triple("YouTube", R.drawable.ic_video, false)
+            Tile.HOME -> Triple("Home", R.drawable.ic_home, false)
+            Tile.WORK -> Triple("Office", R.drawable.ic_work, false)
         }
         paint.color = if (accent) sand else Color.parseColor("#1E283E")
         canvas.drawRoundRect(r, radius, radius, paint)
@@ -347,37 +448,52 @@ class DashboardRenderer(
     }
 
     /** Big clock, fitted to [r]; the date is added only when asked and when it fits. */
+    /** Big bold time with seconds; AM/PM sits above the seconds. */
     private fun drawClock(canvas: Canvas, r: RectF, u: Float, showDate: Boolean) {
         if (r.height() <= 0 || r.width() <= 0) return
         val now = Date()
         val is24 = prefs.use24Hour
         val timeStr = SimpleDateFormat(if (is24) "HH:mm" else "h:mm", Locale.getDefault()).format(now)
+        val secStr = SimpleDateFormat("ss", Locale.US).format(now)
         val ampm = if (is24) "" else SimpleDateFormat("a", Locale.US).format(now)
-        text.typeface = light
-        text.letterSpacing = -0.04f
+        text.textAlign = Paint.Align.LEFT
+        text.typeface = clockFont
+        text.letterSpacing = -0.03f
         text.textSize = u * 0.17f
-        val ampmPaint = TextPaint(text).apply { typeface = regular; textSize = u * 0.032f; color = ink2; letterSpacing = 0.04f }
-        val needed = text.measureText(timeStr) + (if (ampm.isEmpty()) 0f else u * 0.012f + ampmPaint.measureText(ampm))
-        if (needed > r.width()) {
-            val k = r.width() / needed
-            text.textSize *= k
-            ampmPaint.textSize *= k
+        val secPaint = TextPaint(text).apply { color = ink2; letterSpacing = 0f }
+        val ampmPaint = TextPaint(text).apply { typeface = bold; color = ink2; letterSpacing = 0.06f }
+        fun sizeSmall() {
+            secPaint.textSize = text.textSize * 0.36f
+            ampmPaint.textSize = text.textSize * 0.17f
         }
-        var dateSize = if (showDate) u * 0.025f else 0f
+        sizeSmall()
+        // Seconds use fixed-width digits so the clock doesn't jiggle.
+        secPaint.fontFeatureSettings = "tnum"
+        text.fontFeatureSettings = "tnum"
+        fun needed() = text.measureText(timeStr) + u * 0.014f + max(secPaint.measureText("00"), ampmPaint.measureText(ampm))
+        if (needed() > r.width()) {
+            text.textSize *= r.width() / needed()
+            sizeSmall()
+        }
+        var dateSize = if (showDate) u * 0.028f else 0f
         if (text.textSize * 0.78f + dateSize * 1.9f > r.height()) {
             dateSize = 0f
             text.textSize = min(text.textSize, r.height() / 0.85f)
+            sizeSmall()
         }
         val blockH = text.textSize * 0.78f + dateSize * 1.9f
         val baseline = r.top + (r.height() - blockH) / 2 + text.textSize * 0.78f
         text.color = ink
         canvas.drawText(timeStr, r.left - text.textSize * 0.03f, baseline, text)
+        val sx = r.left + text.measureText(timeStr) + u * 0.014f
+        canvas.drawText(secStr, sx, baseline, secPaint)
         if (ampm.isNotEmpty()) {
-            canvas.drawText(ampm, r.left + text.measureText(timeStr) + u * 0.012f, baseline, ampmPaint)
+            canvas.drawText(ampm, sx + u * 0.004f, baseline - secPaint.textSize * 0.78f - ampmPaint.textSize * 0.7f, ampmPaint)
         }
         text.letterSpacing = 0f
+        text.fontFeatureSettings = null
         if (dateSize > 0f) {
-            text.typeface = regular
+            text.typeface = medium
             text.textSize = dateSize
             text.color = ink2
             val dateStr = SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(now)
@@ -409,15 +525,20 @@ class DashboardRenderer(
         text.textSize = u * 0.074f
         text.color = ink
         val temp = w?.let { "${it.tempC}°" } ?: "--°"
-        canvas.drawText(temp, tx, iconRect.top + text.textSize * 0.82f, text)
+        // Keep the temperature and the condition inside the space above the divider.
+        val metaTop = r.bottom - inPad - u * 0.032f
+        val condSize = u * 0.02f
+        text.textSize = min(text.textSize, (metaTop - r.top - inPad - condSize * 1.8f) / 0.82f).coerceAtLeast(10f)
+        val tempBase = r.top + inPad + text.textSize * 0.82f
+        canvas.drawText(temp, tx, tempBase, text)
         text.letterSpacing = 0f
         text.typeface = regular
-        text.textSize = u * 0.02f
+        text.textSize = condSize
         text.color = ink2
-        val cond = w?.description ?: "Turn on location for weather"
+        val cond = w?.description ?: "Loading weather…"
         canvas.drawText(
             TextUtils.ellipsize(cond, text, r.right - inPad - tx, TextUtils.TruncateAt.END).toString(),
-            tx, iconRect.bottom, text
+            tx, tempBase + condSize * 1.6f, text
         )
 
         val metaY = r.bottom - inPad
@@ -425,14 +546,19 @@ class DashboardRenderer(
         canvas.drawRect(r.left + inPad, metaY - u * 0.032f, r.right - inPad, metaY - u * 0.032f + 1f, paint)
         text.textSize = u * 0.017f
         text.color = ink3
-        canvas.drawText("Outside", r.left + inPad, metaY, text)
         val ago = w?.let { agoText(it.fetchedAt) } ?: ""
-        canvas.drawText(ago, r.right - inPad - text.measureText(ago), metaY, text)
+        val agoW = text.measureText(ago)
+        val place = w?.place?.takeIf { it.isNotBlank() } ?: "Outside"
+        canvas.drawText(
+            TextUtils.ellipsize(place, text, r.width() - inPad * 3 - agoW, TextUtils.TruncateAt.END).toString(),
+            r.left + inPad, metaY, text
+        )
+        canvas.drawText(ago, r.right - inPad - agoW, metaY, text)
     }
 
     private fun agoText(t: Long): String {
         val mins = ((System.currentTimeMillis() - t) / 60000).toInt()
-        return if (mins < 1) "Just now" else "Updated $mins min ago"
+        return if (mins < 1) "Just now" else "$mins min ago"
     }
 
     private fun drawWeatherIcon(canvas: Canvas, r: RectF, kind: WeatherNow.Kind) {
@@ -456,7 +582,14 @@ class DashboardRenderer(
             }
             paint.style = Paint.Style.FILL
         }
-        if (kind != WeatherNow.Kind.SUN) {
+        if (kind == WeatherNow.Kind.MOON || kind == WeatherNow.Kind.MOON_CLOUD) {
+            paint.color = sand
+            val moon = Path().apply { addCircle(sunCx, sunCy, s * 0.22f, Path.Direction.CW) }
+            val bite = Path().apply { addCircle(sunCx + s * 0.11f, sunCy - s * 0.08f, s * 0.19f, Path.Direction.CW) }
+            moon.op(bite, Path.Op.DIFFERENCE)
+            canvas.drawPath(moon, paint)
+        }
+        if (kind != WeatherNow.Kind.SUN && kind != WeatherNow.Kind.MOON) {
             paint.color = Color.parseColor("#C9D3E6")
             val cy = r.top + s * 0.68f
             val cloud = Path().apply {
@@ -518,7 +651,9 @@ class DashboardRenderer(
             r.left + inPad, r.centerY() + text.textSize * 1.2f, text
         )
 
-        val lyrics = RectF(r.left + inPad * 2 + labelW, r.top + inPad * 0.6f, r.right - inPad, r.bottom - inPad * 0.9f)
+        // Same margin on both sides so the words sit in the middle of the card.
+        val side = inPad * 2 + labelW
+        val lyrics = RectF(r.left + side, r.top + inPad * 0.6f, r.right - side, r.bottom - inPad * 0.9f)
         drawLyrics(canvas, lyrics, bare = false)
 
         // Progress along the bottom edge.
@@ -564,14 +699,15 @@ class DashboardRenderer(
             color = if (reciting && word < 0) ink3 else if (reciting) ink else ink2
             textSize = r.height() * 0.62f
         }
-        val tr = TextPaint(textFlags).apply { typeface = regular; color = ink2; textAlign = Paint.Align.RIGHT }
+        val tr = TextPaint(textFlags).apply { typeface = regular; color = ink2; textAlign = Paint.Align.CENTER }
         var arLayout: StaticLayout
         var subH: Float
         while (true) {
             tr.textSize = max(ar.textSize * 0.26f, 11 * density)
             subH = if (reciting) tr.textSize * 1.7f else 0f
-            arLayout = layout(styled, ar, width, Layout.Alignment.ALIGN_OPPOSITE, 2)
-            if (arLayout.height + subH <= r.height() || ar.textSize < 10f) break
+            arLayout = layout(styled, ar, width, Layout.Alignment.ALIGN_CENTER, 2)
+            val cut = arLayout.getEllipsisCount(arLayout.lineCount - 1) > 0
+            if ((!cut && arLayout.height + subH <= r.height()) || ar.textSize < 10f) break
             ar.textSize *= 0.94f
         }
         if (subH > 0f && arLayout.height + subH > r.height()) subH = 0f
@@ -582,7 +718,7 @@ class DashboardRenderer(
         canvas.restore()
         if (subH > 0f) {
             val sub = TextUtils.ellipsize(dua.transliteration, tr, r.width(), TextUtils.TruncateAt.END).toString()
-            canvas.drawText(sub, r.right, y0 + arLayout.height + tr.textSize * 1.35f, tr)
+            canvas.drawText(sub, r.centerX(), y0 + arLayout.height + tr.textSize * 1.35f, tr)
         }
         if (bare) {
             val p = Welcome.progress

@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
 import org.json.JSONObject
@@ -12,7 +13,15 @@ import java.net.URL
 import kotlin.concurrent.thread
 import kotlin.math.roundToInt
 
-data class WeatherNow(val tempC: Int, val code: Int, val fetchedAt: Long) {
+data class WeatherNow(
+    val tempC: Int,
+    val code: Int,
+    val fetchedAt: Long,
+    /** False at night: the icon shows a moon instead of the sun. */
+    val isDay: Boolean = true,
+    /** Where the reading is for, e.g. "Dubai". */
+    val place: String = "",
+) {
     /** WMO weather codes as used by Open-Meteo. */
     val description: String get() = when (code) {
         0 -> "Clear"
@@ -27,19 +36,24 @@ data class WeatherNow(val tempC: Int, val code: Int, val fetchedAt: Long) {
         else -> "—"
     }
     val kind: Kind get() = when (code) {
-        0, 1 -> Kind.SUN
-        2 -> Kind.SUN_CLOUD
+        0, 1 -> if (isDay) Kind.SUN else Kind.MOON
+        2 -> if (isDay) Kind.SUN_CLOUD else Kind.MOON_CLOUD
         3, 45, 48 -> Kind.CLOUD
         in 95..99 -> Kind.STORM
         in 51..67, in 80..82 -> Kind.RAIN
         else -> Kind.CLOUD
     }
-    enum class Kind { SUN, SUN_CLOUD, CLOUD, RAIN, STORM }
+    enum class Kind { SUN, SUN_CLOUD, MOON, MOON_CLOUD, CLOUD, RAIN, STORM }
 }
 
-/** Outside temperature from the phone's last known location (Open-Meteo, no API key). */
+/**
+ * Outside temperature for where the phone is (Open-Meteo, no API key). When the
+ * location can't be found, it shows Dubai.
+ */
 object Weather {
     private const val REFRESH_MS = 15 * 60 * 1000L
+    private const val DUBAI_LAT = 25.2048
+    private const val DUBAI_LON = 55.2708
     @Volatile var latest: WeatherNow? = null
         private set
     @Volatile private var loading = false
@@ -52,10 +66,14 @@ object Weather {
         loading = true
         thread(name = "weather") {
             try {
-                val loc = lastLocation(app) ?: return@thread
+                val loc = lastLocation(app)
+                val lat = loc?.latitude ?: DUBAI_LAT
+                val lon = loc?.longitude ?: DUBAI_LON
+                val place = if (loc == null) "Dubai" else placeName(app, lat, lon) ?: "Your location"
                 val url = URL(
-                    "https://api.open-meteo.com/v1/forecast?latitude=%.3f&longitude=%.3f&current=temperature_2m,weather_code"
-                        .format(java.util.Locale.US, loc.latitude, loc.longitude)
+                    ("https://api.open-meteo.com/v1/forecast?latitude=%.3f&longitude=%.3f" +
+                        "&current=temperature_2m,weather_code,is_day&timezone=auto")
+                        .format(java.util.Locale.US, lat, lon)
                 )
                 val conn = url.openConnection() as HttpURLConnection
                 conn.connectTimeout = 8000
@@ -67,6 +85,8 @@ object Weather {
                     tempC = current.getDouble("temperature_2m").roundToInt(),
                     code = current.getInt("weather_code"),
                     fetchedAt = System.currentTimeMillis(),
+                    isDay = current.optInt("is_day", 1) == 1,
+                    place = place,
                 )
                 onUpdate()
             } catch (_: Exception) {
@@ -77,6 +97,15 @@ object Weather {
         }
     }
 
+    /** City name for the card, e.g. "Dubai". Runs on the weather thread. */
+    private fun placeName(context: Context, lat: Double, lon: Double): String? = runCatching {
+        if (!Geocoder.isPresent()) return null
+        @Suppress("DEPRECATION")
+        val a = Geocoder(context, java.util.Locale.getDefault()).getFromLocation(lat, lon, 1)?.firstOrNull()
+        a?.locality ?: a?.subAdminArea ?: a?.adminArea
+    }.getOrNull()
+
+    /** Last known location, if it's from the last 6 hours (an old fix may be another city). */
     @SuppressLint("MissingPermission")
     private fun lastLocation(context: Context): Location? {
         val granted = context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) ==
@@ -86,5 +115,6 @@ object Weather {
         return lm.getProviders(true)
             .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
             .maxByOrNull { it.time }
+            ?.takeIf { System.currentTimeMillis() - it.time < 6 * 60 * 60 * 1000L }
     }
 }
