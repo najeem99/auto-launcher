@@ -3,6 +3,9 @@ package com.najib.carwelcome.car
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import androidx.car.app.CarAppService
+import androidx.car.app.connection.CarConnection
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.car.app.Screen
 import androidx.car.app.Session
 import androidx.car.app.validation.HostValidator
@@ -25,6 +28,27 @@ class DashboardService : CarAppService() {
 }
 
 class DashboardSession : Session() {
+
+    init {
+        // The dua only plays while connected: stop it the moment the phone leaves the car.
+        lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onCreate(owner: LifecycleOwner) {
+                Welcome.carConnected = true
+                CarConnection(carContext).type.observe(owner) { type ->
+                    if (type == CarConnection.CONNECTION_TYPE_NOT_CONNECTED) {
+                        Welcome.carConnected = false
+                        Welcome.stopAll()
+                    }
+                }
+            }
+
+            override fun onDestroy(owner: LifecycleOwner) {
+                Welcome.carConnected = false
+                Welcome.stopAll()
+            }
+        })
+    }
+
     override fun onCreateScreen(intent: Intent): Screen {
         // Fetch weather first so the greeting can mention it, then welcome.
         Weather.refresh(carContext)

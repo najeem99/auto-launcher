@@ -1,6 +1,9 @@
 package com.najib.carwelcome
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -16,6 +19,14 @@ object DuaPlayer {
     private var player: MediaPlayer? = null
     private var focus: AudioFocusRequest? = null
     private var onEnd: (() -> Unit)? = null
+    private var noisyContext: Context? = null
+
+    /** Unplugging from the car (or headphones) makes audio "noisy": stop right away. */
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) stop()
+        }
+    }
 
     /**
      * Start of each line in the built-in recording (ms). Found from the reciter's
@@ -62,10 +73,24 @@ object DuaPlayer {
         }
         val am = context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-            .setAudioAttributes(attrs).build().also { am.requestAudioFocus(it) }
+            .setAudioAttributes(attrs)
+            .setOnAudioFocusChangeListener { change ->
+                when (change) {
+                    AudioManager.AUDIOFOCUS_LOSS -> stop()
+                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pause()
+                }
+            }
+            .build().also { am.requestAudioFocus(it) }
+        val app = context.applicationContext
+        runCatching {
+            app.registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+            noisyContext = app
+        }
         onEnd = {
             focus?.let { am.abandonAudioFocusRequest(it) }
             focus = null
+            noisyContext?.let { c -> runCatching { c.unregisterReceiver(noisyReceiver) } }
+            noisyContext = null
             onFinished()
         }
         mp.setOnCompletionListener {

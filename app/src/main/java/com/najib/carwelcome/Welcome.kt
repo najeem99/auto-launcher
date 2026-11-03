@@ -73,6 +73,16 @@ object Welcome {
         }
     }
 
+    /** True while the phone is projecting to the car. */
+    @Volatile var carConnected = false
+
+    /** Silences everything at once: the greeting, and the dua (which won't start afterwards). */
+    fun stopAll() {
+        runToken++
+        greeter?.stop()
+        DuaPlayer.stop()
+    }
+
     enum class DuaButton { PLAY, PAUSE, HIDDEN }
 
     /** What the Dua button should show: Pause while playing, Play when paused, gone once finished. */
