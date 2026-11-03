@@ -64,9 +64,25 @@ class MainActivity : AppCompatActivity() {
             setOnCheckedChangeListener { _, v -> prefs.greetOnConnect = v }
         })
         column.addView(CheckBox(this).apply {
-            text = "Play the last surah after the greeting"
+            text = "Start playing after the greeting"
             isChecked = prefs.autoPlayAfterGreeting
             setOnCheckedChangeListener { _, v -> prefs.autoPlayAfterGreeting = v }
+        })
+
+        column.addView(label("Surah to play when you start driving"))
+        column.addView(Spinner(this).apply {
+            val choices = listOf("Continue where I left off") +
+                SURAH_NAMES.mapIndexed { i, name -> "${i + 1}. $name" }
+            adapter = ArrayAdapter(
+                this@MainActivity, android.R.layout.simple_spinner_dropdown_item, choices
+            )
+            setSelection(prefs.journeySurah)
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    prefs.journeySurah = pos
+                }
+                override fun onNothingSelected(p: AdapterView<*>?) {}
+            }
         })
 
         column.addView(label("Reciter"))

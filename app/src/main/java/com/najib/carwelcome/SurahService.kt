@@ -2,6 +2,7 @@ package com.najib.carwelcome
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.car.app.connection.CarConnection
@@ -13,10 +14,13 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -62,6 +66,7 @@ class SurahService : MediaLibraryService() {
         )
         session = MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setSessionActivity(openApp)
+            .setCustomLayout(ImmutableList.of(stopButton))
             .build()
 
         carConnectionType = CarConnection(this).type
@@ -101,12 +106,20 @@ class SurahService : MediaLibraryService() {
         }
     }
 
+    /** Starts the journey surah (or continues the last one) when a drive begins. */
     private fun startOrResume() {
-        if (player.mediaItemCount == 0) {
-            player.setMediaItems(Library.queueFrom(prefs.lastSurah, reciter()))
-            player.prepare()
+        if (player.mediaItemCount == 0 || prefs.journeySurah != 0) {
+            player.setMediaItems(Library.queueFrom(prefs.driveStartSurah, reciter()))
         }
+        player.prepare()
         player.play()
+    }
+
+    /** Stops playback and clears the queue; the next play starts a fresh drive queue. */
+    private fun stopPlayback() {
+        resumeAfterGreeting = false
+        player.stop()
+        player.clearMediaItems()
     }
 
     private fun reciter() = reciterById(prefs.reciterId)
@@ -148,7 +161,29 @@ class SurahService : MediaLibraryService() {
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
             if (controller.packageName == ANDROID_AUTO_PACKAGE) main.post { greetIfDue() }
-            return super.onConnect(session, controller)
+            // Offer the Stop button to every controller, including Android Auto
+            // and the media notification (which Android Auto mirrors).
+            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+                .buildUpon()
+                .add(STOP_COMMAND)
+                .build()
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(commands)
+                .setCustomLayout(ImmutableList.of(stopButton))
+                .build()
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle
+        ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction == ACTION_STOP) {
+                stopPlayback()
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
+            return super.onCustomCommand(session, controller, customCommand, args)
         }
 
         override fun onGetLibraryRoot(
@@ -221,14 +256,14 @@ class SurahService : MediaLibraryService() {
                     .toMutableList()
             )
 
-        /** Android Auto's "resume last app" lands here: continue the last surah. */
+        /** Android Auto's "resume last app" lands here: start the journey surah. */
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo
         ): ListenableFuture<MediaItemsWithStartPosition> =
             Futures.immediateFuture(
                 MediaItemsWithStartPosition(
-                    Library.queueFrom(prefs.lastSurah, reciter()), 0, C.TIME_UNSET
+                    Library.queueFrom(prefs.driveStartSurah, reciter()), 0, C.TIME_UNSET
                 )
             )
 
@@ -238,7 +273,16 @@ class SurahService : MediaLibraryService() {
                 ?: item.requestMetadata.searchQuery?.let { findSurah(it) }
     }
 
+    @Suppress("DEPRECATION")
+    private val stopButton: CommandButton = CommandButton.Builder()
+        .setDisplayName("Stop")
+        .setIconResId(R.drawable.ic_stop)
+        .setSessionCommand(STOP_COMMAND)
+        .build()
+
     companion object {
+        private const val ACTION_STOP = "com.najib.carwelcome.STOP"
+        private val STOP_COMMAND = SessionCommand(ACTION_STOP, Bundle.EMPTY)
         private const val ANDROID_AUTO_PACKAGE = "com.google.android.projection.gearhead"
         private const val GREET_COOLDOWN_MS = 10 * 60 * 1000L
     }

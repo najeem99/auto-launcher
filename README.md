@@ -6,8 +6,14 @@ listed on the car screen in four tabs (1–30, 31–60, 61–90, 91–114). Tapp
 plays it and continues with the next surahs. Voice requests like "play Surah
 Yasin in Car Welcome" also work.
 
+## On the car screen while a surah plays
+Android Auto shows the surah name, a progress bar with elapsed and remaining
+time, play/pause, next/previous, and a **Stop** button. Stop ends playback and
+clears the queue; pressing play afterwards starts your journey surah again.
+
 ## Phone settings screen
-Open "Car Welcome" on the phone to change the greeting text, choose the reciter
+Open "Car Welcome" on the phone to change the greeting text, pick the
+**Surah to play when you start driving** (or keep "Continue where I left off"), choose the reciter
 (Alafasy, Abdul Basit, Al-Husary, Al-Sudais), test the greeting, and turn
 auto-play on or off.
 

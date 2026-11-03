@@ -25,6 +25,15 @@ class Prefs(context: Context) {
         get() = sp.getInt("last_surah", 1).coerceIn(1, 114)
         set(v) = sp.edit().putInt("last_surah", v).apply()
 
+    /** Surah to start when a drive begins; 0 means continue where playback left off. */
+    var journeySurah: Int
+        get() = sp.getInt("journey_surah", 0).coerceIn(0, 114)
+        set(v) = sp.edit().putInt("journey_surah", v).apply()
+
+    /** The surah a new drive should start from. */
+    val driveStartSurah: Int
+        get() = journeySurah.takeIf { it in 1..114 } ?: lastSurah
+
     var lastGreetAt: Long
         get() = sp.getLong("last_greet_at", 0L)
         set(v) = sp.edit().putLong("last_greet_at", v).apply()
