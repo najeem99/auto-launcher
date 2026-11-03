@@ -20,10 +20,11 @@ The design reference is the HTML mockup published as "Najeem Car Dashboard".
 ## YouTube while parked
 - Search uses Android Auto's own keyboard (Android Auto only shows it while parked). Tap a video on the
   car screen to play it; drag or use the up/down buttons to scroll; Back goes back inside YouTube.
-- Parked means the car's speed (if the head unit shares it) and the phone's GPS speed have both been
-  under walking pace for 3 seconds. Allow **location** for Najeem Drive on the phone. With no speed
-  readings the video stays locked.
-- As soon as the car moves, the video pauses and a notice covers the screen.
+- The video is allowed unless the car's speed (if the head unit shares it) or the phone's GPS speed
+  shows it moving over about 10 km/h for 2 seconds. With no speed readings at all, video is allowed.
+- The **P** button marks the car as parked by hand. Then only clear driving (over about 18 km/h)
+  pauses the video. Tap it again to go back to the automatic check.
+- When the car is driving, the video pauses and a notice covers the screen.
 - This is unofficial: Android Auto doesn't allow video apps, so the app draws a web view onto its
   map surface. It must be sideloaded, and an Android Auto update could break it.
 
