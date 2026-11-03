@@ -50,6 +50,12 @@ class MainActivity : AppCompatActivity() {
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, "com.google.android.gms.permission.CAR_SPEED"), 1)
         }
+        // The car's Home/Office buttons start navigation through a phone notification.
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
+        }
 
         val pad = dp(16)
         val column = LinearLayout(this).apply {
@@ -65,7 +71,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         column.addView(heading("Maps and Claude from the car"))
-        column.addView(label("Allow \"Display over other apps\" so the car's Maps, Home, Office and Claude buttons can open those apps."))
+        column.addView(label("Allow \"Display over other apps\" so the car's Maps, Home, Office and Claude buttons open those apps straight away. Without it, Home and Office send a notification to this phone; tap it to start navigation."))
         column.addView(overlayButton)
         column.addView(heading("Welcome"))
         column.addView(label("Your name. The car says \"Welcome back, <name>\" in a female voice."))
