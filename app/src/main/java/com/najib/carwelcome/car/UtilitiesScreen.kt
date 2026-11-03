@@ -42,9 +42,9 @@ class UtilitiesScreen(carContext: CarContext) : Screen(carContext) {
         when (tile) {
             UtilitiesRenderer.Tile.SPEEDO -> screenManager.push(SpeedometerScreen(carContext))
             UtilitiesRenderer.Tile.CHECKIN -> DashboardScreen.startCheckIn(carContext, renderer::kick)
-            UtilitiesRenderer.Tile.OFFICE -> PlacesScreen.navigateTo(carContext, "Work")
+            UtilitiesRenderer.Tile.OFFICE -> PlacesScreen.navigateTo(carContext, "Work", "Office")
             UtilitiesRenderer.Tile.HOME -> PlacesScreen.navigateTo(carContext, "Home")
-            UtilitiesRenderer.Tile.PRAYER -> PlacesScreen.navigateTo(carContext, "mosque")
+            UtilitiesRenderer.Tile.PRAYER -> PlacesScreen.navigateTo(carContext, "mosque", "Nearest mosque")
             UtilitiesRenderer.Tile.CLAUDE -> DashboardScreen.openClaude(carContext)
             UtilitiesRenderer.Tile.PARKED -> toggleParked()
         }
