@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var syncPanel: LinearLayout
     private lateinit var syncLine: TextView
     private lateinit var syncButton: Button
+    private lateinit var checkInStatus: TextView
     private val main = Handler(Looper.getMainLooper())
     private var syncTimes = mutableListOf<Int>()
 
@@ -164,6 +165,39 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener { prefs.duaTimings = null; toast("Lyric timing reset"); refreshStatus() }
         })
 
+        column.addView(heading("Work clock-in"))
+        column.addView(label("The car's Clock in button opens your HR site hidden on this phone, signs in and presses Clock in. It never presses Clockout: if it sees Clockout you are already clocked in."))
+        column.addView(label("Site address:"))
+        column.addView(field(prefs.checkInUrl, "https://alfardan.darwinbox.com/") { prefs.checkInUrl = it })
+        column.addView(label("Username (only for \"Sign in with Darwinbox Credentials\"; leave empty if you use Single Sign On):"))
+        column.addView(field(Secrets.user(this), "Employee ID or email") { Secrets.setUser(this, it.trim()) })
+        column.addView(label("Password (kept encrypted on this phone):"))
+        column.addView(field(Secrets.password(this), "Password", password = true) { Secrets.setPassword(this, it) })
+        column.addView(Button(this).apply {
+            text = "Open the site and sign in once"
+            setOnClickListener { startActivity(Intent(this@MainActivity, CheckInSetupActivity::class.java)) }
+        })
+        checkInStatus = label("")
+        column.addView(Button(this).apply {
+            text = "Clock in now (hidden, like the car)"
+            setOnClickListener {
+                checkInStatus.text = "Working…"
+                if (!CheckIn.start(this@MainActivity) { checkInStatus.text = CheckIn.message; if (!CheckIn.isRunning) refreshStatus() }) {
+                    toast("Add the site address first")
+                }
+            }
+        })
+        column.addView(checkInStatus)
+        column.addView(CheckBox(this).apply {
+            text = "Clock in by itself when the dashboard opens on weekday mornings (Mon–Fri, 6–11 AM)"
+            isChecked = prefs.autoCheckIn
+            setOnCheckedChangeListener { _, v -> prefs.autoCheckIn = v }
+        })
+        column.addView(label("Button names, if your site words them differently:"))
+        column.addView(field(prefs.checkInButton, "Clock in") { prefs.checkInButton = it })
+        column.addView(field(prefs.checkInDoneButton, "Clockout") { prefs.checkInDoneButton = it })
+        column.addView(field(prefs.checkInSignInButton, "Sign in with Darwinbox Credentials") { prefs.checkInSignInButton = it })
+
         column.addView(heading("Setup"))
         column.addView(label(SETUP_TEXT))
         setContentView(ScrollView(this).apply { addView(column) })
@@ -254,7 +288,27 @@ class MainActivity : AppCompatActivity() {
         refreshStatus()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::checkInStatus.isInitialized) refreshStatus()
+    }
+
+    private fun field(value: String, hint: String, password: Boolean = false, save: (String) -> Unit) = EditText(this).apply {
+        setText(value)
+        this.hint = hint
+        isSingleLine = true
+        if (password) inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) { save(s?.toString().orEmpty()) }
+        })
+    }
+
     private fun refreshStatus() {
+        if (::checkInStatus.isInitialized && !CheckIn.isRunning) {
+            checkInStatus.text = prefs.lastCheckInResult.ifBlank { "Not run yet." }.let { "Last result: $it" }
+        }
         recordingStatus.text = when {
             !DuaPlayer.hasCustomRecording(this) && prefs.duaTimings == null ->
                 "Using the built-in recording, with its lyrics already timed. You can replace it below."

@@ -42,6 +42,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".CheckInSetupActivity"
+            android:exported="false"
+            android:label="Work clock-in" />
+
         <service
             android:name=".car.DashboardService"
             android:exported="true"

@@ -13,6 +13,8 @@ import androidx.car.app.model.ListTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.Template
 import androidx.core.graphics.drawable.IconCompat
+import com.najib.carwelcome.CheckIn
+import com.najib.carwelcome.Prefs
 import com.najib.carwelcome.R
 
 /** The Map button: pick a destination and hand it to Google Maps (or your default nav app). */
@@ -30,6 +32,20 @@ class PlacesScreen(carContext: CarContext) : Screen(carContext) {
 
     override fun onGetTemplate(): Template {
         val list = ItemList.Builder()
+        if (Prefs(carContext).checkInUrl.isNotBlank()) {
+            // Also reachable here while the dua card covers the Office/Home row.
+            list.addItem(
+                Row.Builder()
+                    .setTitle("Clock in at work")
+                    .addText(CheckIn.statusLine(Prefs(carContext)))
+                    .setImage(CarIcon.Builder(IconCompat.createWithResource(carContext, R.drawable.ic_checkin)).build())
+                    .setOnClickListener {
+                        DashboardScreen.startCheckIn(carContext)
+                        screenManager.pop()
+                    }
+                    .build()
+            )
+        }
         places.forEach { p ->
             list.addItem(
                 Row.Builder()

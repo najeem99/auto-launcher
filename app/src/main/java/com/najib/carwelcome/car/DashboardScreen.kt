@@ -17,6 +17,7 @@ import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
+import com.najib.carwelcome.CheckIn
 import com.najib.carwelcome.R
 import com.najib.carwelcome.Weather
 import com.najib.carwelcome.Welcome
@@ -46,6 +47,10 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
                 parked.start()
                 // The weather arrives on a background thread; draw on the main thread only.
                 Weather.refresh(carContext) { main.post { renderer.draw() } }
+                if (CheckIn.dueAutomatically(carContext)) {
+                    CheckIn.markAutoRun(carContext)
+                    startCheckIn(carContext, renderer::draw)
+                }
             }
             override fun onStop(owner: LifecycleOwner) = parked.stop()
             override fun onDestroy(owner: LifecycleOwner) {
@@ -114,6 +119,7 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             DashboardRenderer.Tile.YOUTUBE -> openYouTube(hostSaysParked = false)
             DashboardRenderer.Tile.HOME -> PlacesScreen.navigateTo(carContext, "Home")
             DashboardRenderer.Tile.WORK -> PlacesScreen.navigateTo(carContext, "Work")
+            DashboardRenderer.Tile.CHECKIN -> startCheckIn(carContext, renderer::draw)
         }
     }
 
@@ -147,5 +153,25 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
 
     companion object {
         private const val CLAUDE_PACKAGE = "com.anthropic.claude"
+
+        /** Clock in on the HR site, hidden on the phone; the result shows as a toast and on the Clock in chip. */
+        fun startCheckIn(carContext: CarContext, redraw: () -> Unit = {}) {
+            if (CheckIn.isRunning) {
+                CarToast.makeText(carContext, CheckIn.message.ifBlank { "Clocking in…" }, CarToast.LENGTH_SHORT).show()
+                return
+            }
+            val started = CheckIn.start(carContext) {
+                redraw()
+                if (!CheckIn.isRunning) {
+                    runCatching { CarToast.makeText(carContext, CheckIn.message, CarToast.LENGTH_LONG).show() }
+                }
+            }
+            if (!started) {
+                CarToast.makeText(carContext, "Add your HR site in the phone app first", CarToast.LENGTH_LONG).show()
+            } else {
+                CarToast.makeText(carContext, "Clocking in…", CarToast.LENGTH_SHORT).show()
+            }
+            redraw()
+        }
     }
 }

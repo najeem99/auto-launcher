@@ -23,6 +23,7 @@ import android.text.SpannableString
 import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
+import com.najib.carwelcome.CheckIn
 import com.najib.carwelcome.DuaPlayer
 import com.najib.carwelcome.DuaSafar
 import com.najib.carwelcome.Prefs
@@ -166,6 +167,7 @@ class DashboardRenderer(
             SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(Date()), lyricsFull, DuaPlayer.completedThisDrive, isStopped(), prefs.use24Hour, prefs.name,
             Welcome.isGreeting, Welcome.isReciting, DuaPlayer.isPlaying, Welcome.currentDuaLine, Welcome.currentDuaWord, Welcome.duaButton(), c.dpi,
             if (p < 0f) -1 else (p * 400).toInt(),
+            CheckIn.phase, CheckIn.message, prefs.checkInUrl.isBlank(),
             w?.tempC, w?.code, w?.isDay, w?.place, w?.let { (System.currentTimeMillis() - it.fetchedAt) / 60000 },
         ).joinToString("|")
     }
@@ -187,7 +189,7 @@ class DashboardRenderer(
         return bmp
     }
 
-    enum class Tile { DUA, MAP, CLAUDE, YOUTUBE, HOME, WORK }
+    enum class Tile { DUA, MAP, CLAUDE, YOUTUBE, HOME, WORK, CHECKIN }
 
     /** Which layout fits the space Android Auto gives us (full screen or a split-screen panel). */
     private enum class Mode { FULL, MEDIUM, COMPACT }
@@ -289,6 +291,7 @@ class DashboardRenderer(
             add(Tile.MAP)
             add(Tile.CLAUDE)
             add(Tile.YOUTUBE)
+            if (prefs.checkInUrl.isNotBlank()) add(Tile.CHECKIN)
         }
         // Buttons: one row along the bottom, or a column if the panel is tall and narrow.
         val tall = r.height() > r.width() * 1.3f
@@ -327,8 +330,10 @@ class DashboardRenderer(
         val c = java.util.Calendar.getInstance()
         val weekday = c.get(java.util.Calendar.DAY_OF_WEEK) in java.util.Calendar.MONDAY..java.util.Calendar.FRIDAY
         val morning = c.get(java.util.Calendar.HOUR_OF_DAY) in 7..10
-        val order = if (weekday && morning) listOf(Tile.WORK, Tile.HOME) else listOf(Tile.HOME, Tile.WORK)
-        val w = (r.width() - gap) / 2
+        val order = (if (weekday && morning) listOf(Tile.WORK, Tile.HOME) else listOf(Tile.HOME, Tile.WORK)).toMutableList()
+        // Clock in sits next to Office in the morning, and last the rest of the day.
+        if (prefs.checkInUrl.isNotBlank()) order.add(if (weekday && morning) 1 else 2, Tile.CHECKIN)
+        val w = (r.width() - gap * (order.size - 1)) / order.size
         order.forEachIndexed { i, t ->
             val rect = RectF(r.left + i * (w + gap), r.top, r.left + i * (w + gap) + w, r.bottom)
             drawPlaceChip(canvas, rect, u, t, primary = i == 0)
@@ -347,13 +352,21 @@ class DashboardRenderer(
         paint.style = Paint.Style.FILL
         val pad = r.height() * 0.22f
         val iconSize = min(r.height() * 0.5f, u * 0.07f)
-        val icon = carContext.getDrawable(if (tile == Tile.WORK) R.drawable.ic_work else R.drawable.ic_home)?.mutate()
-        icon?.setTint(if (primary) teal else ink2)
+        val checkIn = tile == Tile.CHECKIN
+        val iconRes = when (tile) { Tile.WORK -> R.drawable.ic_work; Tile.CHECKIN -> R.drawable.ic_checkin; else -> R.drawable.ic_home }
+        val icon = carContext.getDrawable(iconRes)?.mutate()
+        icon?.setTint(when {
+            checkIn && CheckIn.phase == CheckIn.Phase.DONE -> teal
+            checkIn && CheckIn.phase == CheckIn.Phase.FAILED -> Color.parseColor("#FF8A7A")
+            checkIn -> sand
+            primary -> teal
+            else -> ink2
+        })
         val iy = r.centerY() - iconSize / 2
         icon?.setBounds((r.left + pad).toInt(), iy.toInt(), (r.left + pad + iconSize).toInt(), (iy + iconSize).toInt())
         icon?.draw(canvas)
         val tx = r.left + pad + iconSize + u * 0.02f
-        val title = if (tile == Tile.WORK) "Office" else "Home"
+        val title = when (tile) { Tile.WORK -> "Office"; Tile.CHECKIN -> "Clock in"; else -> "Home" }
         text.textAlign = Paint.Align.LEFT
         text.typeface = bold
         text.textSize = min(r.height() * 0.28f, u * 0.04f)
@@ -363,7 +376,9 @@ class DashboardRenderer(
         text.typeface = regular
         text.textSize = titleSize * 0.55f
         text.color = ink2
-        canvas.drawText("Directions in Google Maps", tx, r.centerY() + titleSize * 0.85f, text)
+        val sub = if (checkIn) CheckIn.statusLine(prefs) else "Directions in Google Maps"
+        val subMax = r.right - tx - pad * 0.5f
+        canvas.drawText(TextUtils.ellipsize(sub, text, subMax, TextUtils.TruncateAt.END).toString(), tx, r.centerY() + titleSize * 0.85f, text)
     }
 
     /** Blinking "P" in the top-right corner while the car is stopped. */
@@ -413,6 +428,7 @@ class DashboardRenderer(
             Tile.YOUTUBE -> Triple("YouTube", R.drawable.ic_video, false)
             Tile.HOME -> Triple("Home", R.drawable.ic_home, false)
             Tile.WORK -> Triple("Office", R.drawable.ic_work, false)
+            Tile.CHECKIN -> Triple(if (CheckIn.isRunning) "Working…" else "Clock in", R.drawable.ic_checkin, false)
         }
         paint.color = if (accent) sand else Color.parseColor("#1E283E")
         canvas.drawRoundRect(r, radius, radius, paint)
@@ -429,6 +445,7 @@ class DashboardRenderer(
             Tile.CLAUDE -> Color.parseColor("#D97757")
             Tile.MAP -> teal
             Tile.YOUTUBE -> Color.parseColor("#FF5A5A")
+            Tile.CHECKIN -> if (CheckIn.phase == CheckIn.Phase.FAILED) Color.parseColor("#FF8A7A") else teal
             else -> fg
         })
         icon?.setBounds(

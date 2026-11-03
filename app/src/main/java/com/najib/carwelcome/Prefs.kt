@@ -30,7 +30,38 @@ class Prefs(context: Context) {
         get() = sp.getLong("last_welcome_at", 0L)
         set(v) = sp.edit().putLong("last_welcome_at", v).apply()
 
+    /** Work clock-in: the site, and the labels of the buttons to look for. */
+    var checkInUrl: String
+        get() = sp.getString("checkin_url", DEFAULT_CHECKIN_URL).orEmpty().trim()
+        set(v) = sp.edit().putString("checkin_url", v.trim()).apply()
+
+    var checkInButton: String
+        get() = sp.getString("checkin_button", null)?.ifBlank { null } ?: "Clock in"
+        set(v) = sp.edit().putString("checkin_button", v.trim()).apply()
+
+    /** The button that appears once you're clocked in. Never pressed, only looked for. */
+    var checkInDoneButton: String
+        get() = sp.getString("checkin_done", null)?.ifBlank { null } ?: "Clockout"
+        set(v) = sp.edit().putString("checkin_done", v.trim()).apply()
+
+    var checkInSignInButton: String
+        get() = sp.getString("checkin_signin", null)?.ifBlank { null } ?: "Sign in with Darwinbox Credentials"
+        set(v) = sp.edit().putString("checkin_signin", v.trim()).apply()
+
+    var autoCheckIn: Boolean
+        get() = sp.getBoolean("checkin_auto", false)
+        set(v) = sp.edit().putBoolean("checkin_auto", v).apply()
+
+    var lastAutoCheckInDay: String
+        get() = sp.getString("checkin_auto_day", "").orEmpty()
+        set(v) = sp.edit().putString("checkin_auto_day", v).apply()
+
+    var lastCheckInResult: String
+        get() = sp.getString("checkin_last", "").orEmpty()
+        set(v) = sp.edit().putString("checkin_last", v).apply()
+
     companion object {
         const val DEFAULT_NAME = "Najeem"
+        const val DEFAULT_CHECKIN_URL = "https://alfardan.darwinbox.com/"
     }
 }
