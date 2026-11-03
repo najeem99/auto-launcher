@@ -1,5 +1,6 @@
 package com.najib.carwelcome.car
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -41,12 +42,16 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
     private var visibleArea: Rect? = null
     private val handler = Handler(Looper.getMainLooper())
     private val prefs = Prefs(carContext)
-    private var pulse = 0f
+    private var background: Bitmap? = null
+    private var lastFrameKey: String? = null
 
+    // Redraw only when something on screen changes. During the dua a few frames
+    // a second is plenty for the lyrics and progress bar; redrawing the whole
+    // surface many times a second made the projected screen flash.
     private val tick = object : Runnable {
         override fun run() {
             draw()
-            handler.postDelayed(this, if (Welcome.isSpeaking) 100L else 1000L)
+            handler.postDelayed(this, if (Welcome.isSpeaking) 250L else 1000L)
         }
     }
 
@@ -71,13 +76,18 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
     private val text = TextPaint(Paint.ANTI_ALIAS_FLAG)
 
     override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
+        // Only one renderer may draw on the car surface at a time.
+        active?.takeIf { it !== this }?.stop()
+        active = this
         container = surfaceContainer
+        lastFrameKey = null
         handler.removeCallbacks(tick)
         handler.post(tick)
     }
 
     override fun onVisibleAreaChanged(visibleArea: Rect) {
         this.visibleArea = Rect(visibleArea)
+        lastFrameKey = null
         draw()
     }
 
@@ -86,15 +96,29 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
     override fun onSurfaceDestroyed(surfaceContainer: SurfaceContainer) {
         container = null
         handler.removeCallbacks(tick)
+        background?.recycle()
+        background = null
     }
 
-    fun stop() = handler.removeCallbacks(tick)
+    fun stop() {
+        handler.removeCallbacks(tick)
+        container = null
+        if (active === this) active = null
+    }
 
     fun draw() {
         val c = container ?: return
         val surface = c.surface ?: return
         if (!surface.isValid) return
-        val canvas = try { surface.lockCanvas(null) } catch (_: Exception) { return } ?: return
+        val key = frameKey(c)
+        if (key == lastFrameKey) return
+        // Hardware canvas: each frame is a complete, GPU-drawn buffer (no tearing).
+        val canvas = try {
+            surface.lockHardwareCanvas()
+        } catch (_: Exception) {
+            try { surface.lockCanvas(null) } catch (_: Exception) { null }
+        } ?: return
+        lastFrameKey = key
         try {
             paintDashboard(canvas, c.width, c.height)
         } finally {
@@ -102,14 +126,39 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         }
     }
 
+    /** Everything that can change what is drawn; identical keys mean no redraw. */
+    private fun frameKey(c: SurfaceContainer): String {
+        val p = Welcome.progress
+        val w = Weather.latest
+        return listOf(
+            c.width, c.height, visibleArea,
+            SimpleDateFormat("yyyyMMddHHmm", Locale.US).format(Date()), prefs.use24Hour, prefs.name,
+            Welcome.isGreeting, Welcome.isReciting, Welcome.currentDuaLine,
+            if (p < 0f) -1 else (p * 400).toInt(),
+            w?.tempC, w?.code, w?.let { (System.currentTimeMillis() - it.fetchedAt) / 60000 },
+        ).joinToString("|")
+    }
+
+    /** The gradient background never changes, so it is drawn once and reused. */
+    private fun backgroundFor(w: Int, h: Int): Bitmap {
+        background?.let { if (it.width == w && it.height == h && !it.isRecycled) return it }
+        background?.recycle()
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val bg = Canvas(bmp)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
+        p.shader = LinearGradient(0f, 0f, w.toFloat(), h.toFloat(), night1, night2, Shader.TileMode.CLAMP)
+        bg.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
+        p.shader = RadialGradient(w * 0.08f, -h * 0.1f, w * 0.6f, Color.argb(41, 91, 209, 193), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+        bg.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
+        p.shader = RadialGradient(w.toFloat(), h * 1.1f, w * 0.5f, Color.argb(33, 232, 194, 122), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+        bg.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
+        background = bmp
+        return bmp
+    }
+
     private fun paintDashboard(canvas: Canvas, w: Int, h: Int) {
         // Background: deep night with a teal glow top-left and a sand glow bottom-right.
-        paint.shader = LinearGradient(0f, 0f, w.toFloat(), h.toFloat(), night1, night2, Shader.TileMode.CLAMP)
-        canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
-        paint.shader = RadialGradient(w * 0.08f, -h * 0.1f, w * 0.6f, Color.argb(41, 91, 209, 193), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-        canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
-        paint.shader = RadialGradient(w.toFloat(), h * 1.1f, w * 0.5f, Color.argb(33, 232, 194, 122), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-        canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+        canvas.drawBitmap(backgroundFor(w, h), 0f, 0f, null)
         paint.shader = null
 
         val area = visibleArea?.takeIf { !it.isEmpty } ?: Rect(0, 0, w, h)
@@ -122,7 +171,6 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         val gap = u * 0.026f
 
         val speaking = Welcome.isSpeaking
-        pulse = if (speaking) (pulse + 0.1f) % 1f else 0f
 
         // Dua card (bottom, full width)
         val duaH = (area.height() * 0.24f).coerceAtLeast(u * 0.11f)
@@ -143,7 +191,7 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         val orbR = u * 0.013f
         val orbCx = left + orbR
         val orbCy = top + greetH / 2
-        val glow = if (speaking) 1f + 0.25f * sin(pulse * 2 * Math.PI).toFloat() else 1f
+        val glow = if (speaking) 1.2f else 1f
         paint.shader = RadialGradient(orbCx - orbR * 0.3f, orbCy - orbR * 0.3f, orbR * 1.2f * glow,
             intArrayOf(Color.WHITE, teal, Color.parseColor("#2A6F86")), floatArrayOf(0f, 0.35f, 1f), Shader.TileMode.CLAMP)
         canvas.drawCircle(orbCx, orbCy, orbR * glow, paint)
@@ -360,4 +408,9 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
             .setMaxLines(maxLines)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
+
+    companion object {
+        /** The renderer currently drawing on the car screen. */
+        private var active: DashboardRenderer? = null
+    }
 }

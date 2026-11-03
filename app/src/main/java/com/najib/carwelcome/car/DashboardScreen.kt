@@ -1,6 +1,8 @@
 package com.najib.carwelcome.car
 
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.DrawableRes
 import androidx.car.app.AppManager
 import androidx.car.app.CarContext
@@ -22,13 +24,15 @@ import com.najib.carwelcome.Welcome
 class DashboardScreen(carContext: CarContext) : Screen(carContext) {
 
     private val renderer = DashboardRenderer(carContext)
+    private val main = Handler(Looper.getMainLooper())
 
     init {
         Welcome.attach(carContext)
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(renderer)
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
-                Weather.refresh(carContext) { renderer.draw() }
+                // The weather arrives on a background thread; draw on the main thread only.
+                Weather.refresh(carContext) { main.post { renderer.draw() } }
             }
             override fun onDestroy(owner: LifecycleOwner) = renderer.stop()
         })
