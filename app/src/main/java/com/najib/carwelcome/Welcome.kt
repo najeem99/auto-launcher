@@ -1,27 +1,47 @@
 package com.najib.carwelcome
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import java.util.Calendar
-import java.util.Locale
 
 /**
- * The spoken welcome: an agent-style greeting with the weather, then Dua al-Safar.
- * The dashboard reads [currentDuaLine] and [isSpeaking] to follow along on screen.
+ * The welcome: "Welcome back, Najeem." in a female voice, then the Dua al-Safar
+ * recording. The dashboard reads [currentDuaLine] to show the words like lyrics.
  */
 object Welcome {
     private const val COOLDOWN_MS = 10 * 60 * 1000L
-    private val ARABIC = Locale("ar")
     private var greeter: Greeter? = null
+    private var appContext: Context? = null
+    private val main = Handler(Looper.getMainLooper())
+    private var runToken = 0
+
+    val isGreeting: Boolean get() = greeter?.isSpeaking == true
+    val isReciting: Boolean get() = DuaPlayer.isPlaying
+    val isSpeaking: Boolean get() = isGreeting || isReciting
 
     /** Index into [DuaSafar.LINES] being recited, or -1. */
-    @Volatile var currentDuaLine = -1
-        private set
+    val currentDuaLine: Int get() {
+        val ctx = appContext ?: return -1
+        if (!DuaPlayer.isPlaying) return -1
+        return DuaPlayer.lineAt(ctx, DuaPlayer.positionMs, DuaPlayer.durationMs)
+    }
 
-    val isSpeaking: Boolean get() = greeter?.isSpeaking == true
+    /** Recitation progress 0..1, or -1 when not reciting. */
+    val progress: Float get() {
+        if (!DuaPlayer.isPlaying) return -1f
+        val d = DuaPlayer.durationMs
+        return if (d > 0) DuaPlayer.positionMs.toFloat() / d else 0f
+    }
 
-    private fun greeter(context: Context) =
-        greeter ?: Greeter(context.applicationContext).also { greeter = it }
+    fun attach(context: Context) { appContext = context.applicationContext }
 
+    private fun greeter(context: Context): Greeter {
+        appContext = context.applicationContext
+        return greeter ?: Greeter(context.applicationContext).also { greeter = it }
+    }
+
+    /** On-screen greeting, which follows the time of day. */
     fun greetingLine(name: String, hour: Int = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)): String {
         val part = when {
             hour < 5 -> "Good night"
@@ -32,7 +52,7 @@ object Welcome {
         return "$part, $name."
     }
 
-    /** Runs the full welcome unless one played in the last 10 minutes. */
+    /** Runs the welcome unless one played in the last 10 minutes. */
     fun runIfDue(context: Context): Boolean {
         val prefs = Prefs(context)
         if (!prefs.welcomeOnOpen) return false
@@ -45,33 +65,23 @@ object Welcome {
 
     fun run(context: Context) {
         val prefs = Prefs(context)
-        val segs = mutableListOf<Greeter.Segment>()
-        segs += Greeter.Segment("${greetingLine(prefs.name)} Welcome back.", Locale.US)
-        Weather.latest?.let {
-            segs += Greeter.Segment("It's ${it.tempC} degrees and ${it.description.lowercase()} outside.", Locale.US)
+        DuaPlayer.stop()
+        val app = context.applicationContext
+        val token = ++runToken
+        greeter(context).speak("Welcome back, ${prefs.name}.") {
+            main.post { if (token == runToken && prefs.reciteDua) DuaPlayer.play(app) }
         }
-        if (prefs.reciteDua) {
-            segs += Greeter.Segment("Before we set off, here is Dua al-Safar.", Locale.US)
-            segs += duaSegments()
+    }
+
+    /** The Dua button: play the recording, or stop if something is playing. */
+    fun toggleDua(context: Context): Boolean {
+        appContext = context.applicationContext
+        if (isSpeaking) {
+            runToken++
+            greeter?.stop()
+            DuaPlayer.stop()
+            return true
         }
-        segs += Greeter.Segment("Have a safe journey.", Locale.US)
-        speak(context, segs)
-    }
-
-    /** The Dua button: recite Dua al-Safar, or stop if it is already speaking. */
-    fun toggleDua(context: Context) {
-        if (isSpeaking) { greeter?.stop(); return }
-        speak(context, duaSegments())
-    }
-
-    private fun duaSegments() = DuaSafar.LINES.mapIndexed { i, line ->
-        Greeter.Segment(line.arabic, ARABIC, fallback = line.meaning, tag = i)
-    }
-
-    private fun speak(context: Context, segs: List<Greeter.Segment>) {
-        greeter(context).speakAll(segs, object : Greeter.Listener {
-            override fun onSegmentStart(segment: Greeter.Segment) { currentDuaLine = segment.tag }
-            override fun onFinished() { currentDuaLine = -1 }
-        })
+        return DuaPlayer.play(context.applicationContext)
     }
 }

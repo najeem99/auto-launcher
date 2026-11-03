@@ -21,6 +21,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("use_24h", false)
         set(v) = sp.edit().putBoolean("use_24h", v).apply()
 
+    /** Start time (ms) of each Dua al-Safar line in your recording, from "Sync lyrics". */
+    var duaTimings: List<Int>?
+        get() = sp.getString("dua_timings", null)?.split(',')?.mapNotNull { it.toIntOrNull() }
+        set(v) = sp.edit().putString("dua_timings", v?.joinToString(",")).apply()
+
     var lastWelcomeAt: Long
         get() = sp.getLong("last_welcome_at", 0L)
         set(v) = sp.edit().putLong("last_welcome_at", v).apply()

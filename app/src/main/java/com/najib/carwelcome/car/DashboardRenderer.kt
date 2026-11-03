@@ -19,13 +19,13 @@ import android.text.TextUtils
 import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
+import com.najib.carwelcome.DuaPlayer
 import com.najib.carwelcome.DuaSafar
 import com.najib.carwelcome.Prefs
 import com.najib.carwelcome.Weather
 import com.najib.carwelcome.WeatherNow
 import com.najib.carwelcome.Welcome
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.cos
@@ -278,19 +278,22 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         }
     }
 
+    /** Dua al-Safar card: the line being recited in large Arabic, like song lyrics. */
     private fun drawDuaCard(canvas: Canvas, r: RectF, u: Float, speaking: Boolean) {
         val radius = u * 0.022f
+        val reciting = Welcome.isReciting
         paint.color = duaFill
         canvas.drawRoundRect(r, radius, radius, paint)
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = if (speaking) 2f else 1f
-        paint.color = if (speaking) Color.argb(140, 232, 194, 122) else line
+        paint.strokeWidth = if (reciting) 2f else 1f
+        paint.color = if (reciting) Color.argb(140, 232, 194, 122) else line
         canvas.drawRoundRect(r, radius, radius, paint)
         paint.style = Paint.Style.FILL
 
         val inPad = u * 0.022f
         val lineIdx = Welcome.currentDuaLine.takeIf { it in DuaSafar.LINES.indices } ?: 0
         val dua = DuaSafar.LINES[lineIdx]
+        val next = DuaSafar.LINES.getOrNull(lineIdx + 1)
 
         // Label on the left
         text.typeface = medium
@@ -306,37 +309,51 @@ class DashboardRenderer(private val carContext: CarContext) : SurfaceCallback {
         text.textSize = u * 0.017f
         text.color = if (speaking) sand else ink3
         val state = when {
-            Welcome.currentDuaLine >= 0 -> "Line ${lineIdx + 1} of ${DuaSafar.LINES.size}"
-            speaking -> "Welcome…"
-            else -> "Tap Dua to recite"
+            reciting -> "${lineIdx + 1} / ${DuaSafar.LINES.size}"
+            Welcome.isGreeting -> "Welcome…"
+            !DuaPlayer.hasRecording(carContext) -> "Add recording on phone"
+            else -> "Tap Dua to play"
         }
         val stateW = text.measureText(state)
         canvas.drawText(state, r.right - inPad - stateW, r.centerY() + text.textSize * 0.35f, text)
 
-        // Arabic line + transliteration in the middle
+        // Lyrics: current line large and bright, next line small and dim.
         val midL = r.left + inPad * 2 + labelW
         val midR = r.right - inPad * 2 - stateW
         val midW = (midR - midL).toInt().coerceAtLeast(10)
         val ar = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = serif; color = ink; textSize = u * 0.029f
+            typeface = serif; color = if (reciting) ink else ink2; textSize = u * 0.032f
         }
-        val tr = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = regular; color = ink3; textSize = u * 0.016f
+        val nx = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = serif; color = ink3; textSize = u * 0.019f; textAlign = Paint.Align.RIGHT
         }
-        val maxH = r.height() - inPad
+        val nextText = next?.let { TextUtils.ellipsize(it.arabic, nx, midW.toFloat(), TextUtils.TruncateAt.END).toString() }
+        val nextH = if (nextText != null && reciting) nx.textSize * 1.5f else 0f
+        val maxH = r.height() - inPad * 1.6f - nextH
         var arLayout = layout(dua.arabic, ar, midW, Layout.Alignment.ALIGN_OPPOSITE, 2)
-        val trText = TextUtils.ellipsize(dua.transliteration, tr, midW.toFloat(), TextUtils.TruncateAt.END)
-        while (arLayout.height + tr.textSize * 1.4f > maxH && ar.textSize > u * 0.018f) {
+        while (arLayout.height > maxH && ar.textSize > u * 0.018f) {
             ar.textSize *= 0.92f
             arLayout = layout(dua.arabic, ar, midW, Layout.Alignment.ALIGN_OPPOSITE, 2)
         }
-        val blockH = arLayout.height + tr.textSize * 1.4f
+        val blockH = arLayout.height + nextH
         val y0 = r.centerY() - blockH / 2
         canvas.save()
         canvas.translate(midL, y0)
         arLayout.draw(canvas)
         canvas.restore()
-        canvas.drawText(trText.toString(), midL, y0 + arLayout.height + tr.textSize * 1.15f, tr)
+        if (nextText != null && reciting) {
+            canvas.drawText(nextText, midL + midW, y0 + arLayout.height + nx.textSize * 1.25f, nx)
+        }
+
+        // Progress along the bottom edge while reciting.
+        val p = Welcome.progress
+        if (p >= 0f) {
+            val barY = r.bottom - u * 0.006f
+            paint.color = Color.argb(40, 255, 255, 255)
+            canvas.drawRect(r.left + radius, barY, r.right - radius, barY + u * 0.003f, paint)
+            paint.color = sand
+            canvas.drawRect(r.left + radius, barY, r.left + radius + (r.width() - 2 * radius) * p, barY + u * 0.003f, paint)
+        }
     }
 
     private fun layout(s: String, p: TextPaint, width: Int, align: Layout.Alignment, maxLines: Int): StaticLayout =

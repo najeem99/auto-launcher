@@ -24,6 +24,7 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
     private val renderer = DashboardRenderer(carContext)
 
     init {
+        Welcome.attach(carContext)
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(renderer)
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
@@ -39,7 +40,15 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
                 Action.Builder()
                     .setTitle("Dua")
                     .setIcon(icon(R.drawable.ic_dua))
-                    .setOnClickListener { Welcome.toggleDua(carContext) }
+                    .setOnClickListener {
+                        if (!Welcome.toggleDua(carContext)) {
+                            CarToast.makeText(
+                                carContext,
+                                "Add your Dua al-Safar recording in Najeem Drive on your phone",
+                                CarToast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
                     .build()
             )
             .addAction(
