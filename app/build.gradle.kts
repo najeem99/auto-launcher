@@ -33,4 +33,5 @@ dependencies {
     implementation("androidx.car.app:app:1.4.0")
     implementation("androidx.car.app:app-projected:1.4.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.security:security-crypto:1.0.0")
 }
