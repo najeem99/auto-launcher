@@ -176,7 +176,7 @@ class DashboardRenderer(
         return bmp
     }
 
-    enum class Tile { DUA, MAP, CLAUDE }
+    enum class Tile { DUA, MAP, CLAUDE, YOUTUBE }
 
     /** Which layout fits the space Android Auto gives us (full screen or a split-screen panel). */
     private enum class Mode { FULL, MEDIUM, COMPACT }
@@ -250,6 +250,7 @@ class DashboardRenderer(
             if (Welcome.duaButton() != Welcome.DuaButton.HIDDEN) add(Tile.DUA)
             add(Tile.MAP)
             add(Tile.CLAUDE)
+            add(Tile.YOUTUBE)
         }
         // Buttons: one row along the bottom, or a column if the panel is tall and narrow.
         val tall = r.height() > r.width() * 1.3f
@@ -287,6 +288,7 @@ class DashboardRenderer(
                 Triple("Pause", R.drawable.ic_pause, true) else Triple("Dua", R.drawable.ic_play, true)
             Tile.MAP -> Triple("Maps", R.drawable.ic_map, false)
             Tile.CLAUDE -> Triple("Claude", R.drawable.ic_claude, false)
+            Tile.YOUTUBE -> Triple("YouTube", R.drawable.ic_video, false)
         }
         paint.color = if (accent) sand else Color.parseColor("#1E283E")
         canvas.drawRoundRect(r, radius, radius, paint)
@@ -299,7 +301,12 @@ class DashboardRenderer(
         val total = iconSize + if (showLabel) text.textSize * 1.5f else 0f
         val iconTop = r.centerY() - total / 2
         val icon = carContext.getDrawable(iconRes)?.mutate()
-        icon?.setTint(if (tile == Tile.CLAUDE) Color.parseColor("#D97757") else if (tile == Tile.MAP) teal else fg)
+        icon?.setTint(when (tile) {
+            Tile.CLAUDE -> Color.parseColor("#D97757")
+            Tile.MAP -> teal
+            Tile.YOUTUBE -> Color.parseColor("#FF5A5A")
+            else -> fg
+        })
         icon?.setBounds(
             (r.centerX() - iconSize / 2).toInt(), iconTop.toInt(),
             (r.centerX() + iconSize / 2).toInt(), (iconTop + iconSize).toInt()

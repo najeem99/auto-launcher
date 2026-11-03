@@ -15,6 +15,17 @@ The design reference is the HTML mockup published as "Najeem Car Dashboard".
   - **Dua**: play Dua al-Safar; tap again to stop.
   - **Map**: Home, Work, Nearest mosque, Petrol station, Coffee. Opens Google Maps navigation.
   - **Claude**: opens the Claude app on your phone (Claude has no Android Auto app), for use when parked.
+  - **YouTube** (video icon): YouTube's mobile site inside the dashboard, **only while parked**.
+
+## YouTube while parked
+- Search uses Android Auto's own keyboard (Android Auto only shows it while parked). Tap a video on the
+  car screen to play it; drag or use the up/down buttons to scroll; Back goes back inside YouTube.
+- Parked means the car's speed (if the head unit shares it) and the phone's GPS speed have both been
+  under walking pace for 3 seconds. Allow **location** for Najeem Drive on the phone. With no speed
+  readings the video stays locked.
+- As soon as the car moves, the video pauses and a notice covers the screen.
+- This is unofficial: Android Auto doesn't allow video apps, so the app draws a web view onto its
+  map surface. It must be sideloaded, and an Android Auto update could break it.
 
 ## How it's built
 Kotlin, Android for Cars App Library 1.4. The app registers as a *navigation*
