@@ -31,6 +31,7 @@ class MainActivity : AppCompatActivity() {
     private val main = Handler(Looper.getMainLooper())
 
     private lateinit var overlayButton: Button
+    private lateinit var prayerList: TextView
 
     override fun onResume() {
         super.onResume()
@@ -40,6 +41,19 @@ class MainActivity : AppCompatActivity() {
             overlayButton.isEnabled = !ok
         }
         if (::checkInStatus.isInitialized) refreshStatus()
+        if (::prayerList.isInitialized) showPrayerTimes()
+    }
+
+    private fun showPrayerTimes() {
+        val (place, times) = Prayer.today(this)
+        val fmt = java.text.SimpleDateFormat(if (prefs.use24Hour) "HH:mm" else "h:mm a", java.util.Locale.getDefault())
+        val next = Prayer.next(this)
+        prayerList.text = buildString {
+            append("Today in ").append(place).append(":\n")
+            for ((name, at) in times) append(name.padEnd(9)).append(fmt.format(java.util.Date(at))).append('\n')
+            append("\nNext: ").append(next.name).append(' ').append(fmt.format(java.util.Date(next.at))).append(", ").append(next.countdown())
+        }
+        prayerList.typeface = android.graphics.Typeface.MONOSPACE
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,6 +119,11 @@ class MainActivity : AppCompatActivity() {
                 if (DuaPlayer.isPlaying) DuaPlayer.stop() else DuaPlayer.play(this@MainActivity)
             }
         })
+
+        column.addView(heading("Prayer times"))
+        column.addView(label("Worked out on this phone with the UAE method (no internet needed), for where you are, or Dubai when the location isn't known."))
+        prayerList = label("")
+        column.addView(prayerList)
 
         column.addView(heading("Work clock-in"))
         column.addView(label("The car's Clock in button opens your HR site hidden on this phone, signs in and presses Clock in. It never presses Clockout: if it sees Clockout you are already clocked in."))

@@ -107,7 +107,7 @@ object Weather {
 
     /** Last known location, if it's from the last 6 hours (an old fix may be another city). */
     @SuppressLint("MissingPermission")
-    private fun lastLocation(context: Context): Location? {
+    fun lastLocation(context: Context): Location? {
         val granted = context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
         if (!granted) return null
