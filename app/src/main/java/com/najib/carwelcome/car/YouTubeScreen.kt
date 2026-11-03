@@ -16,10 +16,18 @@ import com.najib.carwelcome.R
 import com.najib.carwelcome.Welcome
 
 /** YouTube inside the dashboard. Plays only while the car is parked. */
-class YouTubeScreen(carContext: CarContext) : Screen(carContext) {
+/**
+ * [hostSaysParked]: opened from the dashboard's YouTube button, which Android Auto
+ * only lets through while parked, so the video starts unlocked.
+ */
+class YouTubeScreen(carContext: CarContext, hostSaysParked: Boolean = false) : Screen(carContext) {
 
     private val parked = ParkedDetector(carContext)
     private val layer = YouTubeLayer(carContext, YouTubeLayer.HOME, parked)
+
+    init {
+        parked.forcedParked = hostSaysParked
+    }
 
     init {
         Welcome.stopAll() // no dua over the video

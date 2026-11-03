@@ -90,6 +90,16 @@ class ParkedDetector(private val carContext: CarContext) {
      */
     @Volatile var forcedParked = false
 
+    /** A fresh speed reading says the car is standing still (for the P on the dashboard). */
+    fun isStopped(): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        val readings = buildList {
+            if (now - carAt < FRESH_MS) add(carSpeed)
+            if (now - gpsAt < FRESH_MS) add(gpsSpeed)
+        }
+        return readings.isNotEmpty() && readings.all { it < 0.5f }
+    }
+
     /**
      * Lenient: the car counts as parked unless a fresh speed reading has shown it
      * moving for 2 seconds. With no readings at all (many head units share none)

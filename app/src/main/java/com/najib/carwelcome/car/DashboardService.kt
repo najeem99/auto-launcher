@@ -3,6 +3,7 @@ package com.najib.carwelcome.car
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import androidx.car.app.CarAppService
+import androidx.car.app.CarContext
 import androidx.car.app.connection.CarConnection
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -47,6 +48,11 @@ class DashboardSession : Session() {
                 Welcome.stopAll()
             }
         })
+    }
+
+    /** Android Auto sent a navigation request to this app; pass it on to Google Maps. */
+    override fun onNewIntent(intent: Intent) {
+        if (intent.action == CarContext.ACTION_NAVIGATE) PlacesScreen.onNavigateBounced(carContext, intent)
     }
 
     override fun onCreateScreen(intent: Intent): Screen {

@@ -11,6 +11,7 @@ import androidx.car.app.Screen
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.CarIcon
+import androidx.car.app.model.ParkedOnlyOnClickListener
 import androidx.car.app.model.Template
 import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.core.graphics.drawable.IconCompat
@@ -30,18 +31,23 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
         if (now != shownButton) { shownButton = now; invalidate() }
     }
     private val main = Handler(Looper.getMainLooper())
+    /** Car (or GPS) speed, for the blinking P when the car is stopped. */
+    private val parked = ParkedDetector(carContext)
 
     init {
         Welcome.attach(carContext)
+        renderer.isStopped = { parked.isStopped() }
         SurfaceHub.reset()
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(SurfaceHub)
         SurfaceHub.show(renderer)
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 SurfaceHub.show(renderer) // take the screen back after YouTube
+                parked.start()
                 // The weather arrives on a background thread; draw on the main thread only.
                 Weather.refresh(carContext) { main.post { renderer.draw() } }
             }
+            override fun onStop(owner: LifecycleOwner) = parked.stop()
             override fun onDestroy(owner: LifecycleOwner) {
                 SurfaceHub.release(renderer)
                 renderer.stop()
@@ -84,7 +90,10 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             .addAction(
                 Action.Builder()
                     .setIcon(icon(R.drawable.ic_video))
-                    .setOnClickListener { openYouTube() }
+                    // Android Auto itself only runs this tap while the car is parked (it
+                    // shows its own "not while driving" message otherwise), so YouTube
+                    // opens unlocked.
+                    .setOnClickListener(ParkedOnlyOnClickListener.create { openYouTube(hostSaysParked = true) })
                     .build()
             )
         return NavigationTemplate.Builder().setActionStrip(strip.build()).build()
@@ -102,15 +111,15 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             }
             DashboardRenderer.Tile.MAP -> screenManager.push(PlacesScreen(carContext))
             DashboardRenderer.Tile.CLAUDE -> openClaude()
-            DashboardRenderer.Tile.YOUTUBE -> openYouTube()
+            DashboardRenderer.Tile.YOUTUBE -> openYouTube(hostSaysParked = false)
             DashboardRenderer.Tile.HOME -> PlacesScreen.navigateTo(carContext, "Home")
             DashboardRenderer.Tile.WORK -> PlacesScreen.navigateTo(carContext, "Work")
         }
     }
 
     /** YouTube inside the dashboard; it only plays while the car is parked. */
-    private fun openYouTube() {
-        screenManager.push(YouTubeScreen(carContext))
+    private fun openYouTube(hostSaysParked: Boolean) {
+        screenManager.push(YouTubeScreen(carContext, hostSaysParked))
     }
 
     /** Claude has no Android Auto app, so this opens it on the phone for use when parked. */
@@ -118,6 +127,11 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
         val launch = carContext.packageManager.getLaunchIntentForPackage(CLAUDE_PACKAGE)
         if (launch == null) {
             CarToast.makeText(carContext, "Install the Claude app on your phone", CarToast.LENGTH_LONG).show()
+            return
+        }
+        if (!android.provider.Settings.canDrawOverlays(carContext)) {
+            // Android blocks opening apps on the phone from the background without this.
+            PlacesScreen.askForPermission(carContext)
             return
         }
         try {
