@@ -11,7 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
-import androidx.core.content.ContextCompat
+import com.najib.carwelcome.CrashLog
 import com.najib.carwelcome.HomeActivity
 import com.najib.carwelcome.R
 
@@ -43,7 +43,7 @@ class TripService : Service() {
             } else {
                 startForeground(ID, notification())
             }
-        }.isSuccess
+        }.onFailure { CrashLog.caught("trip notification", it) }.isSuccess
         if (!ok || !TripRecorder.isRecording) {
             stopSelf()
             return START_NOT_STICKY
@@ -95,7 +95,16 @@ class TripService : Service() {
         fun start(context: Context) {
             // A location service without location permission would be refused (and crash).
             if (!DriveSensors.hasLocationPermission(context)) return
-            runCatching { ContextCompat.startForegroundService(context, Intent(context, TripService::class.java)) }
+            // A plain start, not startForegroundService(): with that one, if Android then
+            // refuses the foreground notification (it can, when the app is in the
+            // background), the system ends the whole app a few seconds later, which is
+            // an error the app can't catch, and the car screen drops out. A plain start
+            // either works or throws right here, where it is caught.
+            try {
+                context.startService(Intent(context, TripService::class.java))
+            } catch (e: Exception) {
+                CrashLog.caught("start trip service", e)
+            }
         }
 
         fun stop(context: Context) {

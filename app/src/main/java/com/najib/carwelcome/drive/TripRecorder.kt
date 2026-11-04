@@ -9,6 +9,7 @@ import androidx.car.app.CarContext
 import androidx.car.app.connection.CarConnection
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
+import com.najib.carwelcome.CrashLog
 
 /**
  * Records a trip from the moment Android Auto connects (the dashboard opens on the
@@ -90,7 +91,7 @@ object TripRecorder {
 
     private val tick = object : Runnable {
         override fun run() {
-            step(checkEnd = true)
+            CrashLog.guard("trip tick") { step(checkEnd = true) }
             if (current != null) main.postDelayed(this, TICK_MS)
         }
     }
