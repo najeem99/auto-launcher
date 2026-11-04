@@ -142,7 +142,10 @@ object TripRecorder {
         if (current != null) return
         val db = TripDb.get(context)
         val open = db.openTrip() ?: return
-        if (System.currentTimeMillis() - open.updatedAt > MERGE_MS) finish(db, open, open.updatedAt)
+        if (System.currentTimeMillis() - open.updatedAt > MERGE_MS) {
+            finish(db, open, open.updatedAt)
+            TripBackup.backupSoon(context)
+        }
     }
 
     // ---- Start and stop -------------------------------------------------------------
@@ -232,6 +235,7 @@ object TripRecorder {
         DriveSensors.removeFixListener(fixListener)
         DriveSensors.release()
         runCatching { finish(TripDb.get(ctx), trip, endAt) }
+        TripBackup.backupSoon(ctx) // keep the copy outside the app up to date
         TripService.stop(ctx)
         notifyListeners()
     }

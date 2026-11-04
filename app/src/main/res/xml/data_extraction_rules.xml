@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google account backup and phone-to-phone transfer (Android 12+): trips and
+     settings, but not the encrypted clock-in password. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="checkin_secrets.xml" />
+        <exclude domain="sharedpref" path="trip_backup.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="checkin_secrets.xml" />
+        <exclude domain="sharedpref" path="trip_backup.xml" />
+    </device-transfer>
+</data-extraction-rules>
