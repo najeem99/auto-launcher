@@ -117,7 +117,7 @@ class TripActivity : AppCompatActivity() {
                     AlertDialog.Builder(this@TripActivity)
                         .setTitle("Delete this trip?")
                         .setPositiveButton("Delete") { _, _ ->
-                            thread { TripDb.get(this@TripActivity).delete(t.id); main.post { finish() } }
+                            thread { TripDb.get(this@TripActivity).delete(t.id); TripBackup.backupSoon(this@TripActivity); main.post { finish() } }
                         }
                         .setNegativeButton("Cancel", null)
                         .show()

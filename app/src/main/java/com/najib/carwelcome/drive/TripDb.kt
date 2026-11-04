@@ -109,6 +109,28 @@ class TripDb private constructor(context: Context) :
     fun tripsBetween(fromMs: Long, toMs: Long): List<Trip> =
         query("start_at >= ? AND start_at < ?", arrayOf(fromMs.toString(), toMs.toString()), "start_at DESC", null)
 
+    /** Every finished trip, oldest first (for the backup file). */
+    fun allFinished(): List<Trip> = query("end_at IS NOT NULL", emptyArray(), "start_at ASC", null)
+
+    fun count(): Int = readableDatabase.rawQuery("SELECT COUNT(*) FROM trips", null).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+
+    /** Adds a trip from a backup with its speed points, unless a trip with the same start is already here. */
+    fun importTrip(t: Trip, points: List<SpeedPoint>): Boolean {
+        val db = writableDatabase
+        val exists = db.rawQuery("SELECT 1 FROM trips WHERE start_at = ? LIMIT 1", arrayOf(t.startAt.toString())).use { it.moveToFirst() }
+        if (exists) return false
+        db.beginTransaction()
+        try {
+            t.id = 0
+            val id = db.insert("trips", null, values(t))
+            points.forEach { p ->
+                db.insert("speed_points", null, ContentValues().apply { put("trip_id", id); put("at", p.at); put("kmh", p.kmh) })
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+        return true
+    }
+
     fun delete(id: Long) {
         val db = writableDatabase
         db.beginTransaction()

@@ -19,6 +19,8 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import android.provider.DocumentsContract
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.car.app.connection.CarConnection
 import com.najib.carwelcome.drive.DriveUi
@@ -28,6 +30,7 @@ import com.najib.carwelcome.drive.KmChart
 import com.najib.carwelcome.drive.TimeBar
 import com.najib.carwelcome.drive.Trip
 import com.najib.carwelcome.drive.TripActivity
+import com.najib.carwelcome.drive.TripBackup
 import com.najib.carwelcome.drive.TripDb
 import com.najib.carwelcome.drive.TripPrefs
 import com.najib.carwelcome.drive.TripRecorder
@@ -65,6 +68,27 @@ class HomeActivity : AppCompatActivity() {
     private lateinit var liveBar: TimeBar
     private lateinit var liveWait: TextView
     private lateinit var chips: LinearLayout
+    private lateinit var backupBanner: View
+    private lateinit var backupStatus: TextView
+
+    /** The folder picker for the backup file; picking a folder also restores what's in it. */
+    private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+        if (tree == null) return@registerForActivityResult
+        TripBackup.setFolder(this, tree)
+        backupStatus.text = "Checking the folder…"
+        TripBackup.restoreSoon(this) { added ->
+            TripBackup.backupSoon(this) { saved ->
+                main.post {
+                    when {
+                        added == null -> toast("Couldn't read that folder. Try Documents.")
+                        added > 0 -> toast("Restored $added ${if (added == 1) "trip" else "trips"} from the backup")
+                        saved != null -> toast("Backup saved: $saved ${if (saved == 1) "trip" else "trips"}")
+                    }
+                    refreshBackup(); loadStats()
+                }
+            }
+        }
+    }
     private lateinit var periodTitle: TextView
     private lateinit var nextButton: TextView
     private lateinit var summary: LinearLayout
@@ -95,6 +119,8 @@ class HomeActivity : AppCompatActivity() {
         column.addView(header())
         column.addView(controlsCard())
         column.addView(liveCardView())
+        backupBanner = backupBannerView()
+        column.addView(backupBanner)
         column.addView(statsHeader())
         summary = DriveUi.card(this)
         column.addView(summary)
@@ -121,6 +147,8 @@ class HomeActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         TripRecorder.recover(this)
+        TripBackup.backupIfStale(this, 12 * 60 * 60_000L)
+        refreshBackup()
         TripRecorder.addListener(onTrip)
         main.post(clock)
         refreshLive()
@@ -563,11 +591,27 @@ class HomeActivity : AppCompatActivity() {
         addView(numberField("Petrol price (AED per litre)", tripPrefs.fuelPrice) { tripPrefs.fuelPrice = it; loadStats() }, rowParams(10f))
         addView(DriveUi.text(context, "Petrol is a rough estimate: real driving gets about 85% of the rated figure, slow traffic about 55%, and idling burns about 0.6 L an hour.", 12f, DriveUi.ink3)
             .apply { setPadding(0, dp(context, 8f), 0, 0) })
+        addView(DriveUi.label(context, "Backup").apply { setPadding(0, dp(context, 22f), 0, 0) })
+        backupStatus = DriveUi.text(context, "", 13f, DriveUi.ink2)
+        addView(backupStatus, rowParams(8f))
+        addView(row(
+            pillButton("Choose folder", DriveUi.card2, DriveUi.ink) { chooseFolder() },
+            pillButton("Back up now", DriveUi.card2, DriveUi.ink) {
+                if (TripBackup.folder(this@HomeActivity) == null) chooseFolder()
+                else TripBackup.backupSoon(this@HomeActivity) { n ->
+                    main.post { toast(if (n == null) "Backup failed. Choose the folder again." else "Backup saved: $n trips"); refreshBackup() }
+                }
+            },
+        ), rowParams(10f))
+        addView(DriveUi.text(context, "The backup is one file, $BACKUP_HINT. It stays on the phone even if you uninstall the app. After reinstalling, tap Choose folder and pick the same folder to get your trips back. Your trips are also included in your Google account backup if that's on.", 12f, DriveUi.ink3)
+            .apply { setPadding(0, dp(context, 8f), 0, 0) })
         addView(pillButton("Delete all trips", DriveUi.card2, DriveUi.red) {
             AlertDialog.Builder(this@HomeActivity)
                 .setTitle("Delete all trips?")
                 .setMessage("This removes every saved drive from this phone.")
-                .setPositiveButton("Delete") { _, _ -> io.execute { TripDb.get(this@HomeActivity).deleteAll(); main.post { loadStats() } } }
+                .setPositiveButton("Delete") { _, _ ->
+                    io.execute { TripDb.get(this@HomeActivity).deleteAll(); TripBackup.backupSoon(this@HomeActivity) { main.post { refreshBackup() } }; main.post { loadStats() } }
+                }
                 .setNegativeButton("Cancel", null)
                 .show()
         }, rowParams(16f))
@@ -593,6 +637,35 @@ class HomeActivity : AppCompatActivity() {
         })
     }
 
+    // ---- Backup ---------------------------------------------------------------------------
+
+    private fun chooseFolder() {
+        val documents = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Documents")
+        try { pickFolder.launch(documents) } catch (_: Exception) { toast("No file manager found to pick a folder") }
+    }
+
+    /** Shown near the top until a backup folder is set, so the trips aren't lost on uninstall. */
+    private fun backupBannerView(): View = DriveUi.card(this).apply {
+        background = DriveUi.rounded(DriveUi.card, dp(context, 20f).toFloat(), DriveUi.sand, dp(context, 1f))
+        addView(DriveUi.text(context, "Keep your trips safe", 16f, DriveUi.sand, "display"))
+        addView(DriveUi.text(context, "Pick a folder for a backup file (Documents is best). It survives uninstalling. Reinstalled the app? Pick the same folder to bring your trips back.", 13f, DriveUi.ink2)
+            .apply { setPadding(0, dp(context, 8f), 0, 0) })
+        addView(pillButton("Choose backup folder", DriveUi.sand, DriveUi.night1) { chooseFolder() }, rowParams(12f))
+    }
+
+    private fun refreshBackup() {
+        if (!::backupStatus.isInitialized) return
+        val set = TripBackup.folder(this) != null
+        backupBanner.visibility = if (set) View.GONE else View.VISIBLE
+        val at = TripBackup.lastBackupAt(this)
+        backupStatus.text = when {
+            !set -> "Not set up. Without it, uninstalling the app deletes your trips."
+            at == 0L -> "Saving to ${TripBackup.folderName(this)}…"
+            else -> "Saved to ${TripBackup.folderName(this)} · ${TripBackup.lastCount(this)} trips · ${DriveUi.day(at)} ${DriveUi.time(this, at)}"
+        }
+        backupStatus.setTextColor(if (set) DriveUi.ink2 else DriveUi.orange)
+    }
+
     // ---- Helpers ------------------------------------------------------------------------
 
     private fun pillButton(title: String, bg: Int, fg: Int, onClick: () -> Unit): TextView =
@@ -616,6 +689,8 @@ class HomeActivity : AppCompatActivity() {
 
     private fun rowParams(topDp: Float) = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         .apply { topMargin = dp(this@HomeActivity, topDp) }
+
+    private val BACKUP_HINT = "\"${TripBackup.FILE_NAME}\""
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 }

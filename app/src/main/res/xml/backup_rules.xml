@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google account backup (Android 11 and older): everything except the encrypted
+     clock-in password, whose key never leaves the phone. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="checkin_secrets.xml" />
+    <exclude domain="sharedpref" path="trip_backup.xml" />
+</full-backup-content>
