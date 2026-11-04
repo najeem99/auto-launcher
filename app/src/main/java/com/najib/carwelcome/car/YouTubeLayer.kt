@@ -17,12 +17,14 @@ import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
+import com.najib.carwelcome.CrashLog
 
 /**
  * Shows YouTube's mobile site on the car screen. A web view runs on a private
@@ -61,14 +63,18 @@ class YouTubeLayer(
 
     private val watch = object : Runnable {
         override fun run() {
-            applyState(parked.state())
+            CrashLog.guard("YouTube parked check") { applyState(parked.state()) }
             handler.postDelayed(this, 500L)
         }
     }
 
+    /** The surface the player is on, so it can be rebuilt if the web page's process dies. */
+    private var shownOn: SurfaceContainer? = null
+
     override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
         val surface = surfaceContainer.surface ?: return
         detach()
+        shownOn = surfaceContainer
         surfaceW = surfaceContainer.width
         surfaceH = surfaceContainer.height
         try {
@@ -88,6 +94,7 @@ class YouTubeLayer(
             handler.removeCallbacks(watch)
             handler.post(watch)
         } catch (e: Exception) {
+            CrashLog.caught("YouTube player start", e)
             detach()
         }
     }
@@ -99,7 +106,28 @@ class YouTubeLayer(
 
     override fun onStableAreaChanged(stableArea: Rect) {}
 
-    override fun onSurfaceDestroyed(surfaceContainer: SurfaceContainer) = detach()
+    override fun onSurfaceDestroyed(surfaceContainer: SurfaceContainer) {
+        shownOn = null
+        detach()
+    }
+
+    /**
+     * The web page runs in a separate Android process, which can die (out of memory
+     * during a long video, or a WebView update). Unhandled, Android then ends this whole
+     * app, and the car screen drops out. Instead, throw that web view away and open
+     * YouTube again on the same screen.
+     */
+    private fun onPageProcessGone(view: WebView) {
+        CrashLog.caught("YouTube page process ended", IllegalStateException("WebView renderer gone"))
+        if (view !== web) { runCatching { view.destroy() }; return }
+        web = null
+        runCatching { (view.parent as? ViewGroup)?.removeView(view) }
+        runCatching { view.destroy() }
+        handler.post {
+            val c = shownOn ?: return@post
+            if (c.surface?.isValid == true) onSurfaceAvailable(c)
+        }
+    }
 
     /** Keeps the page clear of Android Auto's buttons, except in full screen. */
     private fun applyPadding() {
@@ -163,6 +191,10 @@ class YouTubeLayer(
                     val host = request.url.host.orEmpty()
                     return !(host.endsWith("youtube.com") || host.endsWith("google.com") ||
                         host.endsWith("youtu.be") || host.endsWith("gstatic.com"))
+                }
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                    onPageProcessGone(view)
+                    return true // handled: keep the app running
                 }
                 override fun onPageFinished(view: WebView, url: String) {
                     currentUrl = url
@@ -274,11 +306,11 @@ class YouTubeLayer(
     private fun detach() {
         handler.removeCallbacks(watch)
         web?.let {
-            currentUrl = it.url ?: currentUrl
-            it.evaluateJavascript("document.querySelectorAll('video').forEach(function(v){v.pause();});", null)
-            (it.parent as? ViewGroup)?.removeView(it)
-            it.stopLoading()
-            it.destroy()
+            runCatching { currentUrl = it.url ?: currentUrl }
+            runCatching { it.evaluateJavascript("document.querySelectorAll('video').forEach(function(v){v.pause();});", null) }
+            runCatching { (it.parent as? ViewGroup)?.removeView(it) }
+            runCatching { it.stopLoading() }
+            runCatching { it.destroy() }
         }
         web = null
         notice = null
@@ -287,7 +319,7 @@ class YouTubeLayer(
         fullscreenCallback = null
         runCatching { presentation?.dismiss() }
         presentation = null
-        display?.release()
+        runCatching { display?.release() }
         display = null
     }
 

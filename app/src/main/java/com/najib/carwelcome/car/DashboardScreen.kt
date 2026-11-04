@@ -18,6 +18,7 @@ import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.najib.carwelcome.CheckIn
+import com.najib.carwelcome.CrashLog
 import com.najib.carwelcome.R
 import com.najib.carwelcome.Weather
 import com.najib.carwelcome.Welcome
@@ -36,7 +37,7 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
     private val parked = ParkedDetector(carContext)
 
     init {
-        Welcome.attach(carContext)
+        CrashLog.guard("welcome attach") { Welcome.attach(carContext) }
         renderer.isStopped = { parked.isStopped() }
         SurfaceHub.reset()
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(SurfaceHub)
@@ -44,18 +45,22 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 SurfaceHub.show(renderer) // take the screen back after YouTube
-                parked.start()
+                CrashLog.guard("parked check") { parked.start() }
                 // The weather arrives on a background thread; draw on the main thread only.
-                Weather.refresh(carContext) { main.post { renderer.draw() } }
-                if (CheckIn.dueAutomatically(carContext)) {
-                    CheckIn.markAutoRun(carContext)
-                    startCheckIn(carContext, renderer::draw)
+                CrashLog.guard("weather") { Weather.refresh(carContext) { main.post { renderer.draw() } } }
+                CrashLog.guard("auto clock-in") {
+                    if (CheckIn.dueAutomatically(carContext)) {
+                        CheckIn.markAutoRun(carContext)
+                        startCheckIn(carContext, renderer::draw)
+                    }
                 }
             }
-            override fun onStop(owner: LifecycleOwner) = parked.stop()
+            override fun onStop(owner: LifecycleOwner) { CrashLog.guard("parked stop") { parked.stop() } }
             override fun onDestroy(owner: LifecycleOwner) {
-                SurfaceHub.release(renderer)
-                renderer.stop()
+                CrashLog.guard("dashboard close") {
+                    SurfaceHub.release(renderer)
+                    renderer.stop()
+                }
             }
         })
     }
@@ -70,11 +75,13 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
                     .setTitle(if (playing) "Pause" else "Dua")
                     .setIcon(icon(if (playing) R.drawable.ic_pause else R.drawable.ic_play))
                     .setOnClickListener {
-                        if (!Welcome.pressDua(carContext)) {
-                            CarToast.makeText(carContext, "Couldn't play Dua al-Safar", CarToast.LENGTH_LONG).show()
+                        CrashLog.guard("dua button") {
+                            if (!Welcome.pressDua(carContext)) {
+                                CarToast.makeText(carContext, "Couldn't play Dua al-Safar", CarToast.LENGTH_LONG).show()
+                            }
+                            shownButton = Welcome.duaButton()
+                            invalidate()
                         }
-                        shownButton = Welcome.duaButton()
-                        invalidate()
                     }
                     .build()
             )
@@ -83,13 +90,13 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             .addAction(
                 Action.Builder()
                     .setIcon(icon(R.drawable.ic_map))
-                    .setOnClickListener { screenManager.push(PlacesScreen(carContext)) }
+                    .setOnClickListener { CrashLog.guard("map button") { screenManager.push(PlacesScreen(carContext)) } }
                     .build()
             )
             .addAction(
                 Action.Builder()
                     .setIcon(icon(R.drawable.ic_grid))
-                    .setOnClickListener { screenManager.push(UtilitiesScreen(carContext)) }
+                    .setOnClickListener { CrashLog.guard("utilities button") { screenManager.push(UtilitiesScreen(carContext)) } }
                     .build()
             )
             .addAction(
@@ -126,7 +133,7 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
 
     /** YouTube inside the dashboard; it only plays while the car is parked. */
     private fun openYouTube(hostSaysParked: Boolean) {
-        screenManager.push(YouTubeScreen(carContext, hostSaysParked))
+        CrashLog.guard("open YouTube") { screenManager.push(YouTubeScreen(carContext, hostSaysParked)) }
     }
 
     private fun icon(@DrawableRes res: Int) =

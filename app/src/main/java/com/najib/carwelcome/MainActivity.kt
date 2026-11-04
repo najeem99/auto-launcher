@@ -33,6 +33,12 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var overlayButton: Button
     private lateinit var prayerList: TextView
+    private lateinit var problems: TextView
+
+    private fun showProblems() {
+        if (!::problems.isInitialized) return
+        problems.text = CrashLog.report(this)
+    }
 
     override fun onResume() {
         super.onResume()
@@ -48,6 +54,7 @@ class MainActivity : AppCompatActivity() {
             edgeButton.isEnabled = !on
         }
         if (::prayerList.isInitialized) showPrayerTimes()
+        showProblems()
     }
 
     private fun showPrayerTimes() {
@@ -188,6 +195,29 @@ class MainActivity : AppCompatActivity() {
         column.addView(field(prefs.checkInDoneButton, "Clockout") { prefs.checkInDoneButton = it })
         column.addView(field(prefs.checkInSignInButton, "Sign in with Darwinbox Credentials") { prefs.checkInSignInButton = it })
         column.addView(field(prefs.checkInSsoButton, "Single Sign On") { prefs.checkInSsoButton = it })
+
+        column.addView(heading("Car app problems"))
+        column.addView(label("If the app drops out of Android Auto, the reason is saved here. Tap Share and send it to Claude."))
+        problems = TextView(this).apply {
+            textSize = 11f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setTextIsSelectable(true)
+            setPadding(0, dp(8), 0, 0)
+        }
+        column.addView(Button(this).apply {
+            text = "Share problem report"
+            setOnClickListener {
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_SUBJECT, "Najeem Drive problem report")
+                    .putExtra(Intent.EXTRA_TEXT, CrashLog.report(this@MainActivity))
+                startActivity(Intent.createChooser(send, "Share problem report"))
+            }
+        })
+        column.addView(Button(this).apply {
+            text = "Clear saved errors"
+            setOnClickListener { CrashLog.clear(this@MainActivity); showProblems() }
+        })
+        column.addView(problems)
 
         column.addView(heading("Setup"))
         column.addView(label(SETUP_TEXT))

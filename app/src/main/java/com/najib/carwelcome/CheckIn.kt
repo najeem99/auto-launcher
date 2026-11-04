@@ -17,6 +17,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import org.json.JSONObject
@@ -176,6 +177,12 @@ object CheckIn {
             web.webViewClient = object : WebViewClient() {
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                     if (request.isForMainFrame) loadFailed = "Couldn't reach the site. Check the phone's internet."
+                }
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                    // Unhandled, this would end the whole app (and drop it out of Android Auto).
+                    CrashLog.caught("clock-in page process ended", IllegalStateException("WebView renderer gone"))
+                    finish(Phase.FAILED, "The browser stopped. Try again.")
+                    return true
                 }
             }
             if (load) web.loadUrl(prefs.checkInUrl)

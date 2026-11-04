@@ -42,7 +42,13 @@ class CheckInSetupActivity : AppCompatActivity() {
         }
         web = WebView(this)
         CheckIn.setUp(web)
-        web.webViewClient = WebViewClient()
+        web.webViewClient = object : WebViewClient() {
+            // The page's process died: close this screen instead of letting Android end the app.
+            override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                finish()
+                return true
+            }
+        }
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(status)
