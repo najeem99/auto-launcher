@@ -69,7 +69,9 @@ class TripService : Service() {
             )
         }
         val t = TripRecorder.current
-        val text = if (t == null) "Recording your drive" else {
+        val text = if (t != null && TripRecorder.disconnectedSince != 0L) {
+            "Android Auto disconnected. Reconnect within 5 min to continue this trip."
+        } else if (t == null) "Recording your drive" else {
             val min = t.durationMs / 60_000
             "%.1f km · %s".format(t.distanceM / 1000.0, if (min < 60) "$min min" else "${min / 60} h ${min % 60} min")
         }

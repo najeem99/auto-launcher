@@ -53,6 +53,13 @@ object DriveUi {
         else -> "Heavy traffic"
     }
 
+    /** Happy when the traffic was light, sad when most of the time was spent waiting. */
+    fun emoji(share: Float) = when {
+        share < 0.25f -> "\uD83D\uDE04"   // grinning
+        share < 0.45f -> "\uD83D\uDE10"   // neutral
+        else -> "\uD83D\uDE23"            // persevering
+    }
+
     private var fonts: Map<String, Typeface>? = null
     fun font(context: Context, name: String): Typeface {
         val f = fonts ?: run {
@@ -214,6 +221,70 @@ class TimeBar(context: Context) : View(context) {
         }
         canvas.restore()
     }
+}
+
+/** Kilometres per hour / day / month as bars, each coloured by how much of it was waiting. */
+class KmChart(context: Context) : View(context) {
+    private val bar = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = DriveUi.ink3; textSize = DriveUi.dp(context, 10f).toFloat(); typeface = DriveUi.font(context, "medium")
+        textAlign = Paint.Align.CENTER
+    }
+    private val value = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = DriveUi.ink2; textSize = DriveUi.dp(context, 10f).toFloat(); typeface = DriveUi.font(context, "bold")
+        textAlign = Paint.Align.CENTER
+    }
+    private var km = FloatArray(0)
+    private var colors = IntArray(0)
+    private var labels: List<String> = emptyList()
+    /** Called with the index of a tapped bar that has kilometres. */
+    var onBar: (Int) -> Unit = {}
+
+    fun set(km: FloatArray, colors: IntArray, labels: List<String>) {
+        this.km = km; this.colors = colors; this.labels = labels; invalidate()
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), DriveUi.dp(context, 150f))
+    }
+
+    private fun slot() = if (km.isEmpty()) 1f else width.toFloat() / km.size
+
+    override fun onDraw(canvas: Canvas) {
+        if (km.isEmpty()) return
+        val top = DriveUi.dp(context, 16f).toFloat()
+        val bottom = height - DriveUi.dp(context, 18f).toFloat()
+        val max = km.maxOrNull()?.coerceAtLeast(1f) ?: 1f
+        val slot = slot()
+        val bw = (slot * 0.62f).coerceAtMost(DriveUi.dp(context, 28f).toFloat())
+        val r = (bw / 2).coerceAtMost(DriveUi.dp(context, 6f).toFloat())
+        val showValues = km.size <= 12
+        km.forEachIndexed { i, v ->
+            val cx = slot * i + slot / 2
+            // A faint track for every slot, so empty days still show.
+            bar.color = DriveUi.line
+            canvas.drawRoundRect(RectF(cx - bw / 2, bottom - DriveUi.dp(context, 3f), cx + bw / 2, bottom), r, r, bar)
+            if (v > 0f) {
+                val h = ((bottom - top) * v / max).coerceAtLeast(DriveUi.dp(context, 4f).toFloat())
+                bar.color = colors.getOrElse(i) { DriveUi.teal }
+                canvas.drawRoundRect(RectF(cx - bw / 2, bottom - h, cx + bw / 2, bottom), r, r, bar)
+                if (showValues) canvas.drawText(if (v < 10) "%.1f".format(v) else "%.0f".format(v), cx, bottom - h - DriveUi.dp(context, 4f), value)
+            }
+            labels.getOrNull(i)?.takeIf { it.isNotEmpty() }?.let { canvas.drawText(it, cx, height.toFloat() - 3, label) }
+        }
+    }
+
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+        if (event.action == android.view.MotionEvent.ACTION_DOWN) return true
+        if (event.action == android.view.MotionEvent.ACTION_UP) {
+            val i = (event.x / slot()).toInt()
+            if (i in km.indices && km[i] > 0f) { performClick(); onBar(i) }
+            return true
+        }
+        return super.onTouchEvent(event)
+    }
+
+    override fun performClick(): Boolean = super.performClick()
 }
 
 /** Speed over the trip, as a filled line. */

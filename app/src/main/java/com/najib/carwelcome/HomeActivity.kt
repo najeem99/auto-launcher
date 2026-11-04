@@ -24,13 +24,17 @@ import androidx.car.app.connection.CarConnection
 import com.najib.carwelcome.drive.DriveUi
 import com.najib.carwelcome.drive.DriveUi.dp
 import com.najib.carwelcome.drive.Fuel
+import com.najib.carwelcome.drive.KmChart
 import com.najib.carwelcome.drive.TimeBar
 import com.najib.carwelcome.drive.Trip
 import com.najib.carwelcome.drive.TripActivity
 import com.najib.carwelcome.drive.TripDb
 import com.najib.carwelcome.drive.TripPrefs
 import com.najib.carwelcome.drive.TripRecorder
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 
 /**
@@ -40,12 +44,14 @@ import java.util.concurrent.Executors
  */
 class HomeActivity : AppCompatActivity() {
 
-    private enum class Period(val title: String) { TODAY("Today"), WEEK("Week"), MONTH("Month"), YEAR("Year") }
+    private enum class Period(val title: String) { DAY("Day"), WEEK("Week"), MONTH("Month"), YEAR("Year") }
 
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private lateinit var tripPrefs: TripPrefs
     private var period = Period.WEEK
+    /** Any moment inside the period on screen. */
+    private var anchor = System.currentTimeMillis()
     private var carType = CarConnection.CONNECTION_TYPE_NOT_CONNECTED
     private var wasRecording = false
 
@@ -59,6 +65,8 @@ class HomeActivity : AppCompatActivity() {
     private lateinit var liveBar: TimeBar
     private lateinit var liveWait: TextView
     private lateinit var chips: LinearLayout
+    private lateinit var periodTitle: TextView
+    private lateinit var nextButton: TextView
     private lateinit var summary: LinearLayout
     private lateinit var tripList: LinearLayout
 
@@ -90,7 +98,7 @@ class HomeActivity : AppCompatActivity() {
         column.addView(statsHeader())
         summary = DriveUi.card(this)
         column.addView(summary)
-        column.addView(DriveUi.label(this, "Trips").apply { setPadding(dp(context, 4f), dp(context, 22f), 0, 0) })
+        column.addView(DriveUi.label(this, "Trips · tap one for the details").apply { setPadding(dp(context, 4f), dp(context, 22f), 0, 0) })
         tripList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         column.addView(tripList)
         column.addView(settingsCard())
@@ -223,6 +231,10 @@ class HomeActivity : AppCompatActivity() {
         val t = TripRecorder.current
         statusPill.text = when {
             !tripPrefs.enabled -> "Trip log is off"
+            t != null && TripRecorder.disconnectedSince != 0L -> {
+                val left = (TripRecorder.DISCONNECT_MS - (System.currentTimeMillis() - TripRecorder.disconnectedSince)).coerceAtLeast(0) / 1000
+                "Disconnected · trip kept open %d:%02d".format(left / 60, left % 60)
+            }
             t != null -> "●  In the car · recording"
             carType != CarConnection.CONNECTION_TYPE_NOT_CONNECTED -> "●  In the car"
             else -> "Not connected to the car"
@@ -254,9 +266,17 @@ class HomeActivity : AppCompatActivity() {
     private fun statsHeader(): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(0, dp(context, 22f), 0, 0)
-        addView(DriveUi.label(context, "Driving stats").apply { setPadding(dp(context, 4f), 0, 0, 0) })
+        addView(DriveUi.label(context, "Trips dashboard").apply { setPadding(dp(context, 4f), 0, 0, 0) })
         chips = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         addView(chips, rowParams(10f))
+        // ‹ This week ›: step back and forward through days, weeks, months, years.
+        val nav = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        nav.addView(pillButton("‹", DriveUi.card2, DriveUi.ink) { shift(-1) }, LinearLayout.LayoutParams(dp(context, 52f), ViewGroup.LayoutParams.WRAP_CONTENT))
+        periodTitle = DriveUi.text(context, "", 17f, DriveUi.ink, "display").apply { gravity = Gravity.CENTER }
+        nav.addView(periodTitle, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        nextButton = pillButton("›", DriveUi.card2, DriveUi.ink) { shift(1) }
+        nav.addView(nextButton, LinearLayout.LayoutParams(dp(context, 52f), ViewGroup.LayoutParams.WRAP_CONTENT))
+        addView(nav, rowParams(10f))
         drawChips()
     }
 
@@ -265,7 +285,7 @@ class HomeActivity : AppCompatActivity() {
         Period.values().forEachIndexed { i, p ->
             val on = p == period
             val chip = pillButton(p.title, if (on) DriveUi.ink else DriveUi.card2, if (on) DriveUi.night1 else DriveUi.ink2) {
-                period = p; drawChips(); loadStats()
+                period = p; anchor = System.currentTimeMillis(); drawChips(); loadStats()
             }
             chips.addView(chip, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 if (i > 0) marginStart = dp(this@HomeActivity, 8f)
@@ -273,10 +293,19 @@ class HomeActivity : AppCompatActivity() {
         }
     }
 
-    private fun periodStart(p: Period): Long = Calendar.getInstance().apply {
+    private fun field(p: Period) = when (p) {
+        Period.DAY -> Calendar.DAY_OF_YEAR
+        Period.WEEK -> Calendar.WEEK_OF_YEAR
+        Period.MONTH -> Calendar.MONTH
+        Period.YEAR -> Calendar.YEAR
+    }
+
+    /** Start of the period that contains [at]. */
+    private fun periodStart(p: Period, at: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = at
         set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
         when (p) {
-            Period.TODAY -> {}
+            Period.DAY -> {}
             // Weeks start on Monday (as in the UAE).
             Period.WEEK -> add(Calendar.DAY_OF_YEAR, -((get(Calendar.DAY_OF_WEEK) - Calendar.MONDAY + 7) % 7))
             Period.MONTH -> set(Calendar.DAY_OF_MONTH, 1)
@@ -284,58 +313,156 @@ class HomeActivity : AppCompatActivity() {
         }
     }.timeInMillis
 
+    private fun periodEnd(p: Period, start: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = start
+        add(if (p == Period.WEEK) Calendar.DAY_OF_YEAR else field(p), if (p == Period.WEEK) 7 else 1)
+    }.timeInMillis
+
+    private fun shift(dir: Int) {
+        val start = periodStart(period, anchor)
+        val moved = Calendar.getInstance().apply {
+            timeInMillis = start
+            if (period == Period.WEEK) add(Calendar.DAY_OF_YEAR, 7 * dir) else add(field(period), dir)
+        }.timeInMillis
+        if (moved > System.currentTimeMillis()) return // nothing recorded in the future
+        anchor = moved
+        loadStats()
+    }
+
+    private fun periodName(p: Period, start: Long, end: Long): String {
+        val now = System.currentTimeMillis()
+        val current = now in start until end
+        fun fmt(pattern: String, at: Long) = SimpleDateFormat(pattern, Locale.getDefault()).format(Date(at))
+        return when (p) {
+            Period.DAY -> DriveUi.day(start).let { if (it == "Today" || it == "Yesterday") "$it · ${fmt("EEE d MMM", start)}" else it }
+            Period.WEEK -> if (current) "This week" else "${fmt("d MMM", start)} – ${fmt("d MMM", end - 1)}"
+            Period.MONTH -> if (current) "This month" else fmt("MMMM yyyy", start)
+            Period.YEAR -> if (current) "This year" else fmt("yyyy", start)
+        }
+    }
+
+    /** The bars of the chart: hours of a day, days of a week or month, months of a year. */
+    private fun buckets(p: Period, start: Long, end: Long): List<Pair<Long, String>> {
+        val out = mutableListOf<Pair<Long, String>>()
+        val c = Calendar.getInstance().apply { timeInMillis = start }
+        val step = when (p) { Period.DAY -> Calendar.HOUR_OF_DAY; Period.YEAR -> Calendar.MONTH; else -> Calendar.DAY_OF_YEAR }
+        var i = 0
+        while (c.timeInMillis < end && i < 40) {
+            val at = c.timeInMillis
+            val label = when (p) {
+                Period.DAY -> if (i % 6 == 0) "%d".format(i) else ""
+                Period.WEEK -> SimpleDateFormat("EEE", Locale.getDefault()).format(Date(at)).take(2)
+                Period.MONTH -> c.get(Calendar.DAY_OF_MONTH).let { if (it == 1 || it % 5 == 0) "$it" else "" }
+                Period.YEAR -> SimpleDateFormat("MMM", Locale.getDefault()).format(Date(at)).take(1)
+            }
+            out += at to label
+            c.add(step, 1)
+            i++
+        }
+        return out
+    }
+
     private fun loadStats() {
         val p = period
-        val from = periodStart(p)
+        val start = periodStart(p, anchor)
+        val end = periodEnd(p, start)
+        periodTitle.text = periodName(p, start, end)
+        nextButton.alpha = if (end > System.currentTimeMillis()) 0.3f else 1f
         val db = TripDb.get(this)
         io.execute {
-            val trips = runCatching { db.tripsSince(from) }.getOrDefault(emptyList())
+            val trips = runCatching { db.tripsBetween(start, end) }.getOrDefault(emptyList())
             main.post {
-                if (isFinishing || p != period) return@post
+                if (isFinishing || p != period || periodStart(p, anchor) != start) return@post
                 // The running trip in memory is fresher than its saved copy.
                 val live = TripRecorder.current
                 val list = trips.map { if (live != null && it.id == live.id) live.copy() else it }
-                showSummary(p, list)
-                showTrips(list)
+                showSummary(p, start, end, list)
+                showTrips(p, list)
             }
         }
     }
 
-    private fun showSummary(p: Period, trips: List<Trip>) {
-        summary.removeAllViews()
+    private class Totals(trips: List<Trip>) {
         val dist = trips.sumOf { it.distanceM }
         val moving = trips.sumOf { it.movingMs }
         val slow = trips.sumOf { it.slowMs }
         val idle = trips.sumOf { it.idleMs }
-        val tracked = moving + slow + idle
         val total = trips.sumOf { it.durationMs }
+        val tracked = moving + slow + idle
         val waitShare = if (tracked > 0) (slow + idle).toFloat() / tracked else 0f
-        val wheelsMs = moving + slow
-        val avg = if (wheelsMs > 30_000) (dist / (wheelsMs / 1000.0) * 3.6).toFloat() else 0f
+    }
+
+    private fun showSummary(p: Period, start: Long, end: Long, trips: List<Trip>) {
+        summary.removeAllViews()
+        val tot = Totals(trips)
+        val wheelsMs = tot.moving + tot.slow
+        val avg = if (wheelsMs > 30_000) (tot.dist / (wheelsMs / 1000.0) * 3.6).toFloat() else 0f
         val top = trips.maxOfOrNull { it.topKmh } ?: 0f
         val rated = tripPrefs.ratedKmpl
         val litres = trips.sumOf { Fuel.litres(it, rated) }
-        val real = Fuel.kmpl(dist, litres)
+        val real = Fuel.kmpl(tot.dist, litres)
 
-        val heading = when (p) { Period.TODAY -> "Today"; Period.WEEK -> "This week"; Period.MONTH -> "This month"; Period.YEAR -> "This year" }
-        summary.addView(DriveUi.text(this, heading, 14f, DriveUi.ink2, "medium"))
+        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        left.addView(DriveUi.text(this, "Total distance", 13f, DriveUi.ink3, "medium"))
         val big = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
-        big.addView(DriveUi.text(this, "%.1f".format(dist / 1000), 44f, DriveUi.ink, "display"))
-        big.addView(DriveUi.text(this, " km · ${trips.size} ${if (trips.size == 1) "trip" else "trips"} · ${DriveUi.duration(total)}", 14f, DriveUi.ink2, "medium")
-            .apply { setPadding(0, 0, 0, dp(context, 8f)) })
-        summary.addView(big, rowParams(6f))
+        big.addView(DriveUi.text(this, "%.1f".format(tot.dist / 1000), 44f, DriveUi.ink, "display"))
+        big.addView(DriveUi.text(this, " km", 16f, DriveUi.ink2, "medium").apply { setPadding(0, 0, 0, dp(context, 8f)) })
+        left.addView(big, rowParams(4f))
+        left.addView(DriveUi.text(this, "${trips.size} ${if (trips.size == 1) "trip" else "trips"} · ${DriveUi.duration(tot.total)} in the car", 13f, DriveUi.ink2)
+            .apply { setPadding(0, dp(context, 4f), 0, 0) })
+        head.addView(left, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        if (trips.isNotEmpty()) {
+            val mood = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+            mood.addView(DriveUi.text(this, DriveUi.emoji(tot.waitShare), 40f))
+            mood.addView(DriveUi.text(this, DriveUi.waitWord(tot.waitShare), 12f, DriveUi.waitColor(tot.waitShare), "bold")
+                .apply { setPadding(0, dp(context, 4f), 0, 0) })
+            head.addView(mood)
+        }
+        summary.addView(head)
+
+        // Kilometres per hour / day / month as bars, coloured by how much of it was waiting.
+        val bks = buckets(p, start, end)
+        val km = FloatArray(bks.size)
+        val colors = IntArray(bks.size) { DriveUi.line }
+        val groups = bks.indices.map { i ->
+            val from = bks[i].first
+            val to = if (i + 1 < bks.size) bks[i + 1].first else end
+            trips.filter { it.startAt in from until to }
+        }
+        groups.forEachIndexed { i, g ->
+            val t = Totals(g)
+            km[i] = (t.dist / 1000).toFloat()
+            if (g.isNotEmpty()) colors[i] = DriveUi.waitColor(t.waitShare)
+        }
+        summary.addView(DriveUi.text(this, when (p) {
+            Period.DAY -> "Kilometres by hour"
+            Period.YEAR -> "Kilometres by month"
+            else -> "Kilometres by day"
+        } + (if (p == Period.WEEK || p == Period.MONTH || p == Period.YEAR) " · tap a bar" else ""), 12f, DriveUi.ink3, "medium")
+            .apply { setPadding(0, dp(context, 16f), 0, 0) })
+        summary.addView(KmChart(this).apply {
+            set(km, colors, bks.map { it.second })
+            onBar = { i ->
+                when (p) {
+                    Period.WEEK, Period.MONTH -> { period = Period.DAY; anchor = bks[i].first; drawChips(); loadStats() }
+                    Period.YEAR -> { period = Period.MONTH; anchor = bks[i].first; drawChips(); loadStats() }
+                    Period.DAY -> {}
+                }
+            }
+        }, rowParams(8f))
+
         if (trips.isEmpty()) {
-            summary.addView(DriveUi.text(this, if (tripPrefs.enabled) "No drives yet. A trip starts by itself when Android Auto connects and ends when it disconnects."
-            else "Trip log is off. Turn it on below to record your drives.", 13f, DriveUi.ink3).apply { setPadding(0, dp(context, 8f), 0, 0) })
+            summary.addView(DriveUi.text(this, if (tripPrefs.enabled) "No drives here. A trip starts by itself when Android Auto connects and ends when it disconnects."
+            else "Trip log is off. Turn it on below to record your drives.", 13f, DriveUi.ink3).apply { setPadding(0, dp(context, 10f), 0, 0) })
             return
         }
-        val bar = TimeBar(this).apply { set(moving, slow, idle) }
-        summary.addView(bar, rowParams(14f))
-        summary.addView(DriveUi.legend(this, moving, slow, idle))
+        summary.addView(TimeBar(this).apply { set(tot.moving, tot.slow, tot.idle) }, rowParams(16f))
+        summary.addView(DriveUi.legend(this, tot.moving, tot.slow, tot.idle))
         summary.addView(DriveUi.grid(this, listOf(
-            DriveUi.stat(this, "Driving", DriveUi.duration(moving), DriveUi.teal, "20 km/h and up"),
-            DriveUi.stat(this, "Waiting in traffic", DriveUi.duration(slow + idle), DriveUi.waitColor(waitShare),
-                "${(waitShare * 100).toInt()}% · ${DriveUi.waitWord(waitShare)}"),
+            DriveUi.stat(this, "Driving", DriveUi.duration(tot.moving), DriveUi.teal, "20 km/h and up"),
+            DriveUi.stat(this, "Waiting in traffic", DriveUi.duration(tot.slow + tot.idle), DriveUi.waitColor(tot.waitShare),
+                "${DriveUi.emoji(tot.waitShare)} ${(tot.waitShare * 100).toInt()}% · ${DriveUi.waitWord(tot.waitShare)}"),
             DriveUi.stat(this, "Average speed", DriveUi.kmh(avg), sub = "while moving"),
             DriveUi.stat(this, "Top speed", DriveUi.kmh(top)),
             DriveUi.stat(this, "Petrol (rough)", "%.1f L".format(litres), DriveUi.sand, "≈ AED %.0f".format(litres * tripPrefs.fuelPrice)),
@@ -343,13 +470,33 @@ class HomeActivity : AppCompatActivity() {
         )), rowParams(14f))
     }
 
-    private fun showTrips(trips: List<Trip>) {
+    /** Trips, grouped under a header for each day with that day's totals. */
+    private fun showTrips(p: Period, trips: List<Trip>) {
         tripList.removeAllViews()
         if (trips.isEmpty()) {
             tripList.addView(DriveUi.text(this, "Nothing in this period.", 13f, DriveUi.ink3).apply { setPadding(dp(context, 4f), dp(context, 10f), 0, 0) })
             return
         }
-        trips.take(100).forEach { tripList.addView(tripRow(it)) }
+        val shown = trips.take(300)
+        val byDay = shown.groupBy { periodStart(Period.DAY, it.startAt) }
+        byDay.forEach { (day, list) ->
+            if (p != Period.DAY) tripList.addView(dayHeader(day, list))
+            list.forEach { tripList.addView(tripRow(it)) }
+        }
+        if (trips.size > shown.size) {
+            tripList.addView(DriveUi.text(this, "Showing the latest ${shown.size} trips.", 12f, DriveUi.ink3).apply { setPadding(dp(context, 4f), dp(context, 10f), 0, 0) })
+        }
+    }
+
+    private fun dayHeader(day: Long, list: List<Trip>): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(context, 4f), dp(context, 18f), dp(context, 4f), 0)
+        val t = Totals(list)
+        addView(DriveUi.text(context, DriveUi.day(day), 15f, DriveUi.ink, "display"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(DriveUi.text(context, "${DriveUi.km(t.dist)} · ${DriveUi.duration(t.total)}  ${DriveUi.emoji(t.waitShare)}", 13f, DriveUi.ink2, "medium"))
+        isClickable = true
+        setOnClickListener { period = Period.DAY; anchor = day; drawChips(); loadStats() }
     }
 
     private fun tripRow(t: Trip): View = LinearLayout(this).apply {
@@ -371,15 +518,20 @@ class HomeActivity : AppCompatActivity() {
             setPadding(dp(context, 12f), dp(context, 12f), dp(context, 12f), dp(context, 12f))
         }
         val end = t.endAt?.let { DriveUi.time(context, it) } ?: "now"
-        body.addView(DriveUi.text(context, "${DriveUi.day(t.startAt)} · ${DriveUi.time(context, t.startAt)} → $end", 15f, DriveUi.ink, "bold"))
+        body.addView(DriveUi.text(context, "${DriveUi.time(context, t.startAt)} → $end", 15f, DriveUi.ink, "bold"))
         body.addView(DriveUi.text(context, "${DriveUi.duration(t.durationMs)} · ${DriveUi.km(t.distanceM)} · avg ${DriveUi.kmh(t.avgMovingKmh)}", 13f, DriveUi.ink2)
             .apply { setPadding(0, dp(context, 6f), 0, 0) })
+        body.addView(DriveUi.text(context, "Waiting ${DriveUi.duration(t.waitMs)} · traffic ${DriveUi.duration(t.slowMs)} · standing ${DriveUi.duration(t.idleMs)}", 12f, DriveUi.ink3)
+            .apply { setPadding(0, dp(context, 4f), 0, 0) })
         body.addView(TimeBar(context).apply { set(t.movingMs, t.slowMs, t.idleMs) }, rowParams(10f))
         addView(body, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val pill = DriveUi.text(context, "Wait\n${(t.waitShare * 100).toInt()}%", 12f, waitC, "bold").apply {
+        val pill = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(dp(context, 10f), dp(context, 8f), dp(context, 10f), dp(context, 8f))
             background = DriveUi.rounded(DriveUi.card2, dp(context, 12f).toFloat(), waitC, dp(context, 1f))
+            addView(DriveUi.text(context, DriveUi.emoji(t.waitShare), 24f))
+            addView(DriveUi.text(context, "${(t.waitShare * 100).toInt()}%", 12f, waitC, "bold").apply { setPadding(0, dp(context, 4f), 0, 0) })
         }
         addView(pill, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             gravity = Gravity.CENTER_VERTICAL
