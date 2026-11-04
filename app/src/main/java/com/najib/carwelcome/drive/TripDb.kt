@@ -101,6 +101,14 @@ class TripDb private constructor(context: Context) :
         })
     }
 
+    fun deletePointsAfter(tripId: Long, at: Long) {
+        writableDatabase.delete("speed_points", "trip_id = ? AND at > ?", arrayOf(tripId.toString(), at.toString()))
+    }
+
+    /** Trips that started in [fromMs, toMs), newest first. */
+    fun tripsBetween(fromMs: Long, toMs: Long): List<Trip> =
+        query("start_at >= ? AND start_at < ?", arrayOf(fromMs.toString(), toMs.toString()), "start_at DESC", null)
+
     fun delete(id: Long) {
         val db = writableDatabase
         db.beginTransaction()

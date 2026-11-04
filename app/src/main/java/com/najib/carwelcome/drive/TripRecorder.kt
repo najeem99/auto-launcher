@@ -30,9 +30,13 @@ object TripRecorder {
     private const val SAVE_EVERY_MS = 30_000L
     private const val POINT_EVERY_MS = 15_000L
     /** Reconnecting within this time (a loose cable, a quick fuel stop) continues the same trip. */
-    private const val MERGE_MS = 3 * 60_000L
-    /** Disconnected for this long ends the trip (filters flickers). */
-    private const val DISCONNECT_MS = 10_000L
+    private const val MERGE_MS = 5 * 60_000L
+    /**
+     * After Android Auto disconnects, the trip waits this long for it to come back
+     * (unplug and replug, Android Auto restarting) before it ends. If it doesn't come
+     * back, the trip ends at the moment it disconnected and the wait isn't counted.
+     */
+    const val DISCONNECT_MS = 5 * 60_000L
     /** If the car screen is gone and the phone hasn't moved for this long, the drive is over. */
     private const val STALE_IDLE_MS = 30 * 60_000L
     /** Keep the last reading through short gaps in the signal. */
@@ -60,6 +64,11 @@ object TripRecorder {
     private var sawConnected = false
     private var carScreenOpen = false
     private var disconnectedAt = 0L      // wall clock, 0 = connected
+    /** The trip as it stood when Android Auto disconnected; restored if it never reconnects. */
+    private var atDisconnect: Trip? = null
+
+    /** When Android Auto disconnected, while the trip waits for it to come back (else 0). */
+    val disconnectedSince: Long get() = if (current != null) disconnectedAt else 0L
     private var lastTick = 0L
     private var lastSave = 0L
     private var lastFreshAt = 0L
@@ -79,10 +88,14 @@ object TripRecorder {
 
     private val connectionObserver = Observer<Int> { type ->
         if (type == CarConnection.CONNECTION_TYPE_NOT_CONNECTED) {
-            if (disconnectedAt == 0L) disconnectedAt = System.currentTimeMillis()
+            if (disconnectedAt == 0L) {
+                disconnectedAt = System.currentTimeMillis()
+                atDisconnect = current?.copy()
+            }
         } else {
             sawConnected = true
             disconnectedAt = 0L
+            atDisconnect = null
         }
     }
 
@@ -146,6 +159,7 @@ object TripRecorder {
         current = trip
 
         disconnectedAt = 0L
+        atDisconnect = null
         lastTick = SystemClock.elapsedRealtime()
         lastSave = lastTick
         lastFreshAt = 0L
@@ -194,11 +208,21 @@ object TripRecorder {
         return Trip(startAt = now, updatedAt = now).also { db.insert(it) }
     }
 
-    private fun stop(endAt: Long) {
+    private fun stop(endAt: Long, restore: Trip? = null) {
         val trip = current ?: return
         val ctx = app ?: return
         step(checkEnd = false) // count the last second
         flushPoint(force = true)
+        // Ended after waiting for a reconnect: drop the waiting time again.
+        if (restore != null && restore.id == trip.id) {
+            trip.distanceM = restore.distanceM
+            trip.movingMs = restore.movingMs; trip.slowMs = restore.slowMs
+            trip.idleMs = restore.idleMs; trip.noSignalMs = restore.noSignalMs
+            trip.movingDistM = restore.movingDistM; trip.slowDistM = restore.slowDistM
+            trip.topKmh = restore.topKmh; trip.stops = restore.stops
+            runCatching { TripDb.get(ctx).deletePointsAfter(trip.id, endAt) }
+        }
+        atDisconnect = null
         current = null
         speedKmh = null
         main.removeCallbacks(tick)
@@ -299,7 +323,7 @@ object TripRecorder {
         // shown it works in this app, or the car screen has closed too.)
         val disc = disconnectedAt
         if (disc != 0L && nowWall - disc >= DISCONNECT_MS && (sawConnected || !carScreenOpen)) {
-            stop(disc)
+            stop(disc, atDisconnect)
         } else if (!carScreenOpen && idleRunMs >= STALE_IDLE_MS) {
             stop(idleSinceWall)
         }

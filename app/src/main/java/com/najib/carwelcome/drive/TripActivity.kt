@@ -67,7 +67,10 @@ class TripActivity : AppCompatActivity() {
         big.addView(DriveUi.text(this, " km in ${DriveUi.duration(t.durationMs)}", 15f, DriveUi.ink2, "medium").apply {
             setPadding(0, 0, 0, dp(context, 8f))
         })
-        head.addView(big)
+        val topRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        topRow.addView(big, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        topRow.addView(DriveUi.text(this, DriveUi.emoji(t.waitShare), 44f))
+        head.addView(topRow)
         head.addView(TimeBar(this).apply { set(t.movingMs, t.slowMs, t.idleMs) }, params(14f))
         head.addView(DriveUi.legend(this, t.movingMs, t.slowMs, t.idleMs))
         head.addView(DriveUi.text(this, "Waiting ${DriveUi.duration(t.waitMs)} · ${(t.waitShare * 100).toInt()}% of the trip · ${DriveUi.waitWord(t.waitShare)}", 14f, waitC, "bold")
@@ -77,6 +80,7 @@ class TripActivity : AppCompatActivity() {
         val prefs = TripPrefs(this)
         val litres = Fuel.litres(t, prefs.ratedKmpl)
         val real = Fuel.kmpl(t.distanceM, litres)
+        column.addView(calculation(t, prefs, litres))
         val stats = DriveUi.card(this)
         stats.addView(DriveUi.label(this, "Numbers"))
         stats.addView(DriveUi.grid(this, listOf(
@@ -120,6 +124,45 @@ class TripActivity : AppCompatActivity() {
                 }
             }, params(20f))
         }
+    }
+
+    /** Shows how the waiting time, the mood, the average and the petrol were worked out. */
+    private fun calculation(t: Trip, prefs: TripPrefs, litres: Double): LinearLayout {
+        val c = DriveUi.card(this)
+        c.addView(DriveUi.label(this, "How it's worked out"))
+        fun line(name: String, value: String, color: Int = DriveUi.ink, bold: Boolean = false) {
+            c.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, dp(context, 10f), 0, 0)
+                addView(DriveUi.text(context, name, 14f, DriveUi.ink2), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(DriveUi.text(context, value, 14f, color, if (bold) "bold" else "medium").apply { gravity = Gravity.END })
+            })
+        }
+        fun divider() = c.addView(android.view.View(this).apply { setBackgroundColor(DriveUi.line) },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(this, 1f)).apply { topMargin = dp(this@TripActivity, 12f) })
+        val d = DriveUi::duration
+        line("Time in the car", d(t.durationMs))
+        line("Driving (20 km/h and up)", d(t.movingMs), DriveUi.teal)
+        line("Slow traffic (5–20 km/h)", d(t.slowMs), DriveUi.orange)
+        line("Standing (under 5 km/h)", d(t.idleMs), DriveUi.red)
+        if (t.noSignalMs > 0) line("No speed signal", d(t.noSignalMs), DriveUi.ink3)
+        divider()
+        val waitC = DriveUi.waitColor(t.waitShare)
+        line("Waiting = slow traffic + standing", d(t.waitMs), waitC, bold = true)
+        line("Waiting ÷ measured time", "${d(t.waitMs)} ÷ ${d(t.trackedMs)} = ${(t.waitShare * 100).toInt()}%", waitC, bold = true)
+        line("Result", "${DriveUi.emoji(t.waitShare)}  ${DriveUi.waitWord(t.waitShare)}", waitC, bold = true)
+        c.addView(DriveUi.text(this, "\uD83D\uDE04 under 25% waiting   \uD83D\uDE10 25–45%   \uD83D\uDE23 over 45%", 12f, DriveUi.ink3)
+            .apply { setPadding(0, dp(context, 8f), 0, 0) })
+        divider()
+        val wheels = t.movingMs + t.slowMs
+        line("Average speed", "${DriveUi.km(t.distanceM)} ÷ ${d(wheels)} moving = ${DriveUi.kmh(t.avgMovingKmh)}")
+        val rated = prefs.ratedKmpl
+        val otherKm = ((t.distanceM - t.movingDistM - t.slowDistM).coerceAtLeast(0.0) + t.movingDistM) / 1000
+        line("Petrol, driving", "%.1f km ÷ (%.0f × 0.85)".format(otherKm, rated))
+        line("Petrol, slow traffic", "%.1f km ÷ (%.0f × 0.55)".format(t.slowDistM / 1000, rated))
+        line("Petrol, standing", "${d(t.idleMs)} × 0.6 L/h")
+        line("Petrol total (rough)", "%.2f L ≈ AED %.2f".format(litres, litres * prefs.fuelPrice), DriveUi.sand, bold = true)
+        return c
     }
 
     private fun params(topDp: Float) = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
