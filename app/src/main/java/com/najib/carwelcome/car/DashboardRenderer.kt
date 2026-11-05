@@ -24,7 +24,6 @@ import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
 import com.najib.carwelcome.CheckIn
-import com.najib.carwelcome.CrashLog
 import com.najib.carwelcome.DuaPlayer
 import com.najib.carwelcome.DuaSafar
 import com.najib.carwelcome.Prefs
@@ -64,12 +63,10 @@ class DashboardRenderer(
     // surface many times a second made the projected screen flash.
     private val tick = object : Runnable {
         override fun run() {
-            CrashLog.guard("dashboard tick") {
-                onTick()
-                Weather.refresh(carContext) // no-op unless the reading is 15 minutes old
-                if (lyricsFull && !Welcome.isSpeaking) lyricsFull = false
-                draw()
-            }
+            onTick()
+            Weather.refresh(carContext) // no-op unless the reading is 15 minutes old
+            if (lyricsFull && !Welcome.isSpeaking) lyricsFull = false
+            draw()
             val now = System.currentTimeMillis()
             // Land just after each new second so the clock's seconds tick evenly.
             val delay = if (Welcome.isSpeaking) 250L else 1000L - now % 1000L + 15L
@@ -156,13 +153,8 @@ class DashboardRenderer(
         lastFrameKey = key
         try {
             paintDashboard(canvas, c.width, c.height)
-        } catch (e: Exception) {
-            // A drawing bug (an odd screen size, a split-screen panel) must never take the
-            // car app down; note it and try again on the next frame.
-            CrashLog.caught("dashboard draw ${c.width}x${c.height} $visibleArea", e)
-            lastFrameKey = null
         } finally {
-            runCatching { surface.unlockCanvasAndPost(canvas) }
+            surface.unlockCanvasAndPost(canvas)
         }
     }
 
@@ -776,8 +768,8 @@ class DashboardRenderer(
         }
     }
 
-    private fun layout(s: CharSequence, p: TextPaint, rawWidth: Int, align: Layout.Alignment, maxLines: Int): StaticLayout =
-        StaticLayout.Builder.obtain(s, 0, s.length, p, rawWidth.coerceAtLeast(1))
+    private fun layout(s: CharSequence, p: TextPaint, width: Int, align: Layout.Alignment, maxLines: Int): StaticLayout =
+        StaticLayout.Builder.obtain(s, 0, s.length, p, width)
             .setAlignment(align)
             .setMaxLines(maxLines)
             .setEllipsize(TextUtils.TruncateAt.END)

@@ -216,6 +216,33 @@ class HomeActivity : AppCompatActivity() {
         addView(DriveUi.text(context, "Opens Google Maps with the route started. It shows on the car screen too.", 12f, DriveUi.ink3).apply {
             setPadding(0, dp(context, 10f), 0, 0)
         })
+        addView(DriveUi.label(context, "Android Auto").apply { setPadding(0, dp(context, 18f), 0, 0) })
+        addView(row(
+            pillButton("Show in Android Auto", DriveUi.teal, DriveUi.night1) { showInAndroidAuto() },
+        ), rowParams(12f))
+        addView(DriveUi.text(context, "Not on the car screen? This opens Android Auto's settings. Tap \"Customize launcher\" and tick Najeem Drive.", 12f, DriveUi.ink3).apply {
+            setPadding(0, dp(context, 10f), 0, 0)
+        })
+    }
+
+    /**
+     * Opens Android Auto's own settings, where its launcher list decides which apps the
+     * car shows. An app can't add itself to that list; only Android Auto can.
+     */
+    private fun showInAndroidAuto() {
+        val gearhead = "com.google.android.projection.gearhead"
+        val tries = listOfNotNull(
+            packageManager.getLaunchIntentForPackage(gearhead),
+            Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$gearhead")),
+        )
+        for (i in tries) {
+            try {
+                startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                toast("Tap \"Customize launcher\" and tick Najeem Drive")
+                return
+            } catch (_: Exception) {}
+        }
+        toast("Android Auto isn't installed on this phone")
     }
 
     private fun navigate(place: String) {

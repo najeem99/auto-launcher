@@ -12,7 +12,6 @@ import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
-import com.najib.carwelcome.CrashLog
 import com.najib.carwelcome.R
 import com.najib.carwelcome.Weather
 
@@ -40,10 +39,6 @@ class UtilitiesScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     private fun onTile(tile: UtilitiesRenderer.Tile) {
-        CrashLog.guard("utilities $tile") { tap(tile) }
-    }
-
-    private fun tap(tile: UtilitiesRenderer.Tile) {
         when (tile) {
             UtilitiesRenderer.Tile.SPEEDO -> screenManager.push(SpeedometerScreen(carContext))
             UtilitiesRenderer.Tile.CHECKIN -> DashboardScreen.startCheckIn(carContext, renderer::kick)
@@ -75,7 +70,7 @@ class UtilitiesScreen(carContext: CarContext) : Screen(carContext) {
                 Action.Builder()
                     .setTitle("Home")
                     .setIcon(icon(R.drawable.ic_back))
-                    .setOnClickListener { CrashLog.guard("utilities back") { screenManager.pop() } }
+                    .setOnClickListener { screenManager.pop() }
                     .build()
             )
             .build()

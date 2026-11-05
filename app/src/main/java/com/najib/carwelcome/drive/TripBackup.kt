@@ -6,7 +6,6 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.JsonReader
 import android.util.JsonWriter
-import com.najib.carwelcome.CrashLog
 import java.io.ByteArrayOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
@@ -60,7 +59,7 @@ object TripBackup {
         val app = context.applicationContext
         if (folder(app) == null) { done?.invoke(null); return }
         io.execute {
-            val n = runCatching { write(app) }.onFailure { CrashLog.caught("trip backup", it) }.getOrNull()
+            val n = runCatching { write(app) }.onFailure { android.util.Log.w("TripBackup", "backup failed", it) }.getOrNull()
             done?.invoke(n)
         }
     }
@@ -74,7 +73,7 @@ object TripBackup {
     fun restoreSoon(context: Context, done: (Int?) -> Unit) {
         val app = context.applicationContext
         io.execute {
-            val n = runCatching { restore(app) }.onFailure { CrashLog.caught("trip restore", it) }.getOrNull()
+            val n = runCatching { restore(app) }.onFailure { android.util.Log.w("TripBackup", "restore failed", it) }.getOrNull()
             done(n)
         }
     }

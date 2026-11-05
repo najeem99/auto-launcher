@@ -89,11 +89,6 @@ object DriveSpeed {
         }
     }
 
-    /** Stops only if [carContext]'s session is the one running (an older session closing late leaves it alone). */
-    fun stop(carContext: CarContext) {
-        if (context === carContext) stop()
-    }
-
     fun stop() {
         if (!running) return
         running = false
