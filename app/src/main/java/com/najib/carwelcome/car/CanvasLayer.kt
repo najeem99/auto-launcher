@@ -18,7 +18,6 @@ import androidx.annotation.DrawableRes
 import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
-import com.najib.carwelcome.CrashLog
 
 /**
  * A screen drawn straight onto the car surface (the Utilities and Speedometer screens).
@@ -44,10 +43,8 @@ abstract class CanvasLayer(protected val carContext: CarContext) : SurfaceCallba
 
     private val tick = object : Runnable {
         override fun run() {
-            CrashLog.guard("${this@CanvasLayer.javaClass.simpleName} frame") {
-                beforeFrame()
-                draw()
-            }
+            beforeFrame()
+            draw()
             val delay = if (wantsFastFrames()) FAST_FRAME_MS else 1000L - System.currentTimeMillis() % 1000L + 15L
             handler.postDelayed(this, delay)
         }
@@ -125,7 +122,7 @@ abstract class CanvasLayer(protected val carContext: CarContext) : SurfaceCallba
             render(canvas, area)
         } catch (e: Exception) {
             // A drawing bug must never take the car app down; the next frame tries again.
-            CrashLog.caught("${javaClass.simpleName} draw", e)
+            Log.w("CanvasLayer", "draw failed", e)
             lastKey = null
         } finally {
             runCatching { surface.unlockCanvasAndPost(canvas) }

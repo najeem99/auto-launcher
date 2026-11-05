@@ -5,7 +5,6 @@ import android.os.Parcel
 import android.view.Surface
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
-import com.najib.carwelcome.CrashLog
 
 /**
  * Android Auto gives the app one drawing surface. The hub keeps it and hands it to
@@ -54,15 +53,15 @@ object SurfaceHub : SurfaceCallback {
         val c = container ?: return
         val copy = duplicate(c) ?: return
         lent = copy
-        CrashLog.guard("surface available") { layer.onSurfaceAvailable(copy) }
-        visible?.let { CrashLog.guard("visible area") { layer.onVisibleAreaChanged(it) } }
-        stable?.let { CrashLog.guard("stable area") { layer.onStableAreaChanged(it) } }
+        layer.onSurfaceAvailable(copy)
+        visible?.let { layer.onVisibleAreaChanged(it) }
+        stable?.let { layer.onStableAreaChanged(it) }
     }
 
     private fun takeBack() {
         val l = lent ?: return
         lent = null
-        CrashLog.guard("surface destroyed") { active?.onSurfaceDestroyed(l) }
+        runCatching { active?.onSurfaceDestroyed(l) }
         runCatching { l.surface?.release() }
     }
 
@@ -82,34 +81,29 @@ object SurfaceHub : SurfaceCallback {
         }
     }
 
-    // Calls from Android Auto. An error escaping one of these would end the whole car
-    // app, so each is caught and noted in the crash log instead.
-
     override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
-        CrashLog.guard("hub surface available") {
-            takeBack()
-            container = surfaceContainer
-            lend()
-        }
+        takeBack()
+        container = surfaceContainer
+        lend()
     }
 
     override fun onVisibleAreaChanged(visibleArea: Rect) {
         visible = Rect(visibleArea)
-        if (lent != null) CrashLog.guard("visible area") { active?.onVisibleAreaChanged(visibleArea) }
+        if (lent != null) active?.onVisibleAreaChanged(visibleArea)
     }
 
     override fun onStableAreaChanged(stableArea: Rect) {
         stable = Rect(stableArea)
-        if (lent != null) CrashLog.guard("stable area") { active?.onStableAreaChanged(stableArea) }
+        if (lent != null) active?.onStableAreaChanged(stableArea)
     }
 
     override fun onSurfaceDestroyed(surfaceContainer: SurfaceContainer) {
-        CrashLog.guard("hub surface destroyed") { takeBack() }
+        takeBack()
         container = null
     }
 
-    override fun onClick(x: Float, y: Float) { CrashLog.guard("tap") { active?.onClick(x, y) } }
-    override fun onScroll(distanceX: Float, distanceY: Float) { CrashLog.guard("scroll") { active?.onScroll(distanceX, distanceY) } }
-    override fun onFling(velocityX: Float, velocityY: Float) { CrashLog.guard("fling") { active?.onFling(velocityX, velocityY) } }
-    override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) { CrashLog.guard("zoom") { active?.onScale(focusX, focusY, scaleFactor) } }
+    override fun onClick(x: Float, y: Float) { active?.onClick(x, y) }
+    override fun onScroll(distanceX: Float, distanceY: Float) { active?.onScroll(distanceX, distanceY) }
+    override fun onFling(velocityX: Float, velocityY: Float) { active?.onFling(velocityX, velocityY) }
+    override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) { active?.onScale(focusX, focusY, scaleFactor) }
 }
