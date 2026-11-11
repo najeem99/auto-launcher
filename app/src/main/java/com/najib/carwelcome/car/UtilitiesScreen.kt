@@ -47,6 +47,7 @@ class UtilitiesScreen(carContext: CarContext) : Screen(carContext) {
             UtilitiesRenderer.Tile.PRAYER -> PlacesScreen.navigateTo(carContext, "mosque", "Nearest mosque")
             UtilitiesRenderer.Tile.CLAUDE -> DashboardScreen.openClaude(carContext)
             UtilitiesRenderer.Tile.PARKED -> toggleParked()
+            UtilitiesRenderer.Tile.TRIP -> screenManager.push(TripStatsScreen(carContext))
         }
     }
 

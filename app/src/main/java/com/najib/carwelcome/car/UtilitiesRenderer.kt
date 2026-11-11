@@ -14,6 +14,8 @@ import com.najib.carwelcome.Prayer
 import com.najib.carwelcome.Prefs
 import com.najib.carwelcome.R
 import com.najib.carwelcome.Weather
+import com.najib.carwelcome.drive.DriveUi
+import com.najib.carwelcome.drive.TripRecorder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -31,7 +33,7 @@ class UtilitiesRenderer(
     private val onTile: (Tile) -> Unit,
 ) : CanvasLayer(carContext) {
 
-    enum class Tile { SPEEDO, CHECKIN, OFFICE, HOME, PRAYER, CLAUDE, PARKED }
+    enum class Tile { SPEEDO, CHECKIN, OFFICE, HOME, PRAYER, CLAUDE, PARKED, TRIP }
 
     private val prefs = Prefs(carContext)
     private val needle = Needle()
@@ -46,13 +48,14 @@ class UtilitiesRenderer(
             needle.shown?.let { (it * 2).toInt() }, DriveSpeed.signal(), DriveSpeed.accuracyM.toInt(), DriveSpeed.maxKmh.toInt(),
             CheckIn.phase, CheckIn.message, prefs.checkInUrl.isBlank(), ParkedDetector.manualParked,
             w?.tempC, Prayer.next(carContext).let { "${it.name}${it.at}${it.countdown()}" }, SimpleDateFormat("yyyyMMdd", Locale.US).format(Date()),
+            TripRecorder.current?.let { "${it.id}|${(System.currentTimeMillis() - it.startAt) / 60_000}|${(it.waitShare * 100).toInt()}" },
         ).joinToString("|")
     }
 
     /** Small tiles in grid order. Split screen leaves out the prayer time and Claude. */
     private fun smallTiles(split: Boolean): List<Tile> =
-        if (split) listOf(Tile.CHECKIN, Tile.OFFICE, Tile.HOME, Tile.PARKED)
-        else listOf(Tile.CHECKIN, Tile.OFFICE, Tile.HOME, Tile.PRAYER, Tile.CLAUDE, Tile.PARKED)
+        if (split) listOf(Tile.CHECKIN, Tile.OFFICE, Tile.HOME, Tile.PARKED, Tile.TRIP)
+        else listOf(Tile.CHECKIN, Tile.OFFICE, Tile.HOME, Tile.PRAYER, Tile.CLAUDE, Tile.PARKED, Tile.TRIP)
 
     override fun render(canvas: Canvas, area: Rect) {
         val wDp = area.width() / density
@@ -95,7 +98,7 @@ class UtilitiesRenderer(
         val speedo = RectF(g.left, g.top, g.left + unitW * 1.7f, g.bottom)
         drawSpeedoTile(canvas, speedo, k, footer = true)
         onTap(speedo) { onTile(Tile.SPEEDO) }
-        layoutSmall(canvas, RectF(speedo.right + gap, g.top, g.right, g.bottom), smallTiles(false), 3, 2, gap, k, full = true)
+        layoutSmall(canvas, RectF(speedo.right + gap, g.top, g.right, g.bottom), smallTiles(false), 4, 2, gap, k, full = true)
     }
 
     private fun paintSplit(canvas: Canvas, g: RectF, gap: Float, k: Float) {
@@ -219,6 +222,7 @@ class UtilitiesRenderer(
                 Tile.CLAUDE -> R.drawable.ic_claude to look.claude
                 Tile.PARKED -> (if (parkedOn) R.drawable.ic_parked_on else R.drawable.ic_parked) to look.teal
                 Tile.SPEEDO -> R.drawable.ic_grid to look.teal
+                Tile.TRIP -> R.drawable.ic_trip to (if (TripRecorder.current != null) look.red else look.teal)
             }
             icon(canvas, res, RectF(box.left + inset, box.top + inset, box.right - inset, box.bottom - inset), tint)
         }
@@ -250,6 +254,10 @@ class UtilitiesRenderer(
             Tile.CLAUDE -> "Claude" to "On your phone"
             Tile.PARKED -> "Parked" to if (full) (if (parkedOn) "YouTube on" else "YouTube locked") else (if (parkedOn) "On" else "Off")
             Tile.SPEEDO -> "Speedometer" to ""
+            Tile.TRIP -> "Trip stats" to (TripRecorder.current?.let { t ->
+                val ride = DriveUi.duration(System.currentTimeMillis() - t.startAt)
+                if (t.trackedMs > 0) "$ride · ${Math.round(t.waitShare * 100)}% traffic" else ride
+            } ?: "No trip running")
         }
 
         val textW = r.width() - pad * 2
