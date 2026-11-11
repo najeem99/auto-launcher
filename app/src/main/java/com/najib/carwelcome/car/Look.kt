@@ -24,6 +24,7 @@ class Look private constructor(private val context: Context) {
 
     val sora300 = font("Sora.ttf", 300, Typeface.create("sans-serif-light", Typeface.NORMAL))
     val sora500 = font("Sora.ttf", 500, Typeface.create("sans-serif-medium", Typeface.NORMAL))
+    val sora600 = font("Sora.ttf", 600, Typeface.create("sans-serif-medium", Typeface.BOLD))
     val manrope500 = font("Manrope.ttf", 500, Typeface.create("sans-serif", Typeface.NORMAL))
     val manrope600 = font("Manrope.ttf", 600, Typeface.create("sans-serif-medium", Typeface.NORMAL))
     val manrope700 = font("Manrope.ttf", 700, manrope600)
