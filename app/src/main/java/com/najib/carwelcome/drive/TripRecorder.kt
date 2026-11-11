@@ -28,7 +28,7 @@ object TripRecorder {
     private const val SLOW_KMH = 20f
     private const val TICK_MS = 1_000L
     private const val SAVE_EVERY_MS = 30_000L
-    private const val POINT_EVERY_MS = 15_000L
+    private const val POINT_EVERY_MS = 5_000L
     /** Reconnecting within this time (a loose cable, a quick fuel stop) continues the same trip. */
     private const val MERGE_MS = 5 * 60_000L
     /**

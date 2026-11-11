@@ -288,55 +288,158 @@ class KmChart(context: Context) : View(context) {
 }
 
 /** Speed over the trip, as a filled line. */
+/**
+ * Speed over the whole ride. Fast stretches peak high in teal, slow traffic dips orange,
+ * standing still sits on the floor in red. The top speed is marked, gaps (no signal,
+ * unplugged) break the line, and dragging a finger across shows the speed at that moment.
+ */
 class SpeedGraph(context: Context) : View(context) {
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = DriveUi.dp(context, 2f).toFloat()
-        strokeJoin = Paint.Join.ROUND; color = DriveUi.teal
+        style = Paint.Style.STROKE; strokeWidth = DriveUi.dp(context, 2.5f).toFloat()
+        strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.ROUND
     }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val grid = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = DriveUi.line; strokeWidth = 1f }
+    private val band = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = DriveUi.ink3; strokeWidth = 1f
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(6f, 6f), 0f)
+    }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = DriveUi.ink3; textSize = DriveUi.dp(context, 10f).toFloat(); typeface = DriveUi.font(context, "medium")
     }
+    private val peakText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = DriveUi.ink; textSize = DriveUi.dp(context, 12f).toFloat(); typeface = DriveUi.font(context, "bold")
+    }
+    private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val bubble = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = DriveUi.card2 }
     private var points: List<SpeedPoint> = emptyList()
+    private var touchX: Float? = null
 
     fun set(p: List<SpeedPoint>) { points = p; invalidate() }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), DriveUi.dp(context, 170f))
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), DriveUi.dp(context, 230f))
+    }
+
+    private fun colorFor(kmh: Float) = when {
+        kmh < 5f -> DriveUi.red
+        kmh < 20f -> DriveUi.orange
+        else -> DriveUi.teal
+    }
+
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
+        if (points.size < 2) return false
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
+                touchX = e.x; invalidate()
+            }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                parent?.requestDisallowInterceptTouchEvent(false)
+                touchX = null; invalidate()
+            }
+        }
+        return true
     }
 
     override fun onDraw(canvas: Canvas) {
-        val left = DriveUi.dp(context, 30f).toFloat()
-        val top = DriveUi.dp(context, 6f).toFloat()
-        val bottom = height - DriveUi.dp(context, 18f).toFloat()
-        val right = width.toFloat()
+        val d = { v: Float -> DriveUi.dp(context, v).toFloat() }
+        val left = d(30f)
+        val top = d(26f)
+        val bottom = height - d(20f)
+        val right = width.toFloat() - d(4f)
         val maxKmh = ((points.maxOfOrNull { it.kmh } ?: 0f).coerceAtLeast(40f) / 20f).let { kotlin.math.ceil(it) * 20f }
+        fun yOf(kmh: Float) = bottom - (bottom - top) * (kmh / maxKmh).coerceIn(0f, 1f)
+
         var v = 0f
+        val stepKmh = if (maxKmh > 100) 40f else 20f
         while (v <= maxKmh) {
-            val y = bottom - (bottom - top) * v / maxKmh
+            val y = yOf(v)
             canvas.drawLine(left, y, right, y, grid)
             canvas.drawText(v.toInt().toString(), 0f, y + label.textSize / 3, label)
-            v += if (maxKmh > 100) 40f else 20f
+            v += stepKmh
         }
+        // The 20 km/h line splits "driving" from "slow traffic".
+        canvas.drawLine(left, yOf(20f), right, yOf(20f), band)
+
         if (points.size < 2) {
             canvas.drawText("Not enough speed data for a graph", left + 8, (top + bottom) / 2, label)
             return
         }
         val t0 = points.first().at
         val span = (points.last().at - t0).coerceAtLeast(1L).toFloat()
-        val path = Path()
+        fun xOf(at: Long) = left + (right - left) * (at - t0) / span
+
+        // Colour by height: teal above 20 km/h, orange 5-20, red under 5 (hard edges).
+        val y20 = yOf(20f); val y5 = yOf(5f)
+        val f20 = ((y20 - top) / (bottom - top)).coerceIn(0f, 1f)
+        val f5 = ((y5 - top) / (bottom - top)).coerceIn(0f, 1f)
+        val colors = intArrayOf(DriveUi.teal, DriveUi.teal, DriveUi.orange, DriveUi.orange, DriveUi.red, DriveUi.red)
+        val stops = floatArrayOf(0f, f20, f20, f5, f5, 1f)
+        line.shader = LinearGradient(0f, top, 0f, bottom, colors, stops, Shader.TileMode.CLAMP)
+        fun alpha(c: Int, a: Int) = Color.argb(a, Color.red(c), Color.green(c), Color.blue(c))
+        fill.shader = LinearGradient(0f, top, 0f, bottom,
+            intArrayOf(alpha(DriveUi.teal, 120), alpha(DriveUi.teal, 60), alpha(DriveUi.orange, 50), alpha(DriveUi.orange, 30), alpha(DriveUi.red, 30), alpha(DriveUi.red, 10)),
+            stops, Shader.TileMode.CLAMP)
+
+        // Split into runs; a gap over a minute means no data (tunnel, unplugged) and breaks the line.
+        val runs = mutableListOf<MutableList<SpeedPoint>>()
         points.forEachIndexed { i, p ->
-            val x = left + (right - left) * (p.at - t0) / span
-            val y = bottom - (bottom - top) * (p.kmh / maxKmh).coerceIn(0f, 1f)
-            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            if (i == 0 || p.at - points[i - 1].at > GAP_MS) runs += mutableListOf(p) else runs.last() += p
         }
-        val area = Path(path).apply { lineTo(right, bottom); lineTo(left, bottom); close() }
-        fill.shader = LinearGradient(0f, top, 0f, bottom, Color.argb(110, 91, 209, 193), Color.argb(0, 91, 209, 193), Shader.TileMode.CLAMP)
-        canvas.drawPath(area, fill)
-        canvas.drawPath(path, line)
-        canvas.drawText(DriveUi.time(context, points.first().at), left, height.toFloat() - 2, label)
+        for (run in runs) {
+            if (run.size == 1) {
+                dot.color = colorFor(run[0].kmh)
+                canvas.drawCircle(xOf(run[0].at), yOf(run[0].kmh), d(2f), dot)
+                continue
+            }
+            val path = Path()
+            run.forEachIndexed { i, p -> if (i == 0) path.moveTo(xOf(p.at), yOf(p.kmh)) else path.lineTo(xOf(p.at), yOf(p.kmh)) }
+            val area = Path(path).apply { lineTo(xOf(run.last().at), bottom); lineTo(xOf(run.first().at), bottom); close() }
+            canvas.drawPath(area, fill)
+            canvas.drawPath(path, line)
+        }
+
+        // Peak marker.
+        val peak = points.maxByOrNull { it.kmh }!!
+        if (peak.kmh >= 1f) {
+            val px = xOf(peak.at); val py = yOf(peak.kmh)
+            dot.color = DriveUi.ink
+            canvas.drawCircle(px, py, d(4f), dot)
+            dot.color = colorFor(peak.kmh)
+            canvas.drawCircle(px, py, d(2.5f), dot)
+            val txt = "Top %.0f".format(peak.kmh)
+            val w = peakText.measureText(txt)
+            val tx = (px - w / 2).coerceIn(left, right - w)
+            canvas.drawText(txt, tx, py - d(8f), peakText)
+        }
+
+        // Time labels: start, middle, end.
+        val startText = DriveUi.time(context, points.first().at)
         val endText = DriveUi.time(context, points.last().at)
-        canvas.drawText(endText, right - label.measureText(endText), height.toFloat() - 2, label)
+        val midText = DriveUi.time(context, t0 + (span / 2).toLong())
+        val ly = height.toFloat() - d(4f)
+        canvas.drawText(startText, left, ly, label)
+        canvas.drawText(midText, (left + right) / 2 - label.measureText(midText) / 2, ly, label)
+        canvas.drawText(endText, right - label.measureText(endText), ly, label)
+
+        // Finger scrub: vertical line + bubble with time and speed.
+        touchX?.let { tx ->
+            val x = tx.coerceIn(left, right)
+            val at = t0 + ((x - left) / (right - left) * span).toLong()
+            val near = points.minByOrNull { kotlin.math.abs(it.at - at) }!!
+            val nx = xOf(near.at); val ny = yOf(near.kmh)
+            canvas.drawLine(nx, top - d(4f), nx, bottom, grid.apply { color = DriveUi.ink2 })
+            grid.color = DriveUi.line
+            dot.color = colorFor(near.kmh)
+            canvas.drawCircle(nx, ny, d(4.5f), dot)
+            val txt = "${DriveUi.time(context, near.at)} · %.0f km/h".format(near.kmh)
+            val w = peakText.measureText(txt) + d(16f)
+            val bx = (nx - w / 2).coerceIn(0f, width - w)
+            canvas.drawRoundRect(RectF(bx, 0f, bx + w, d(22f)), d(11f), d(11f), bubble)
+            canvas.drawText(txt, bx + d(8f), d(15.5f), peakText)
+        }
     }
+
+    private companion object { const val GAP_MS = 60_000L }
 }
