@@ -77,6 +77,13 @@ class TripActivity : AppCompatActivity() {
             .apply { setPadding(0, dp(context, 12f), 0, 0) })
         column.addView(head)
 
+        val graph = DriveUi.card(this)
+        graph.addView(DriveUi.label(this, "Speed through the ride"))
+        graph.addView(SpeedGraph(this).apply { set(points) }, params(12f))
+        graph.addView(DriveUi.text(this, "High = fast, low = slow traffic or stopped. Drag across the graph to see the speed at any moment.", 12f, DriveUi.ink3)
+            .apply { setPadding(0, dp(context, 10f), 0, 0) })
+        column.addView(graph)
+
         val prefs = TripPrefs(this)
         val litres = Fuel.litres(t, prefs.ratedKmpl)
         val real = Fuel.kmpl(t.distanceM, litres)
@@ -98,11 +105,6 @@ class TripActivity : AppCompatActivity() {
         stats.addView(DriveUi.text(this, if (t.carSpeed) "Speed from the car's own speedometer." else "Speed from the phone's GPS.", 12f, DriveUi.ink3)
             .apply { setPadding(0, dp(context, 12f), 0, 0) })
         column.addView(stats)
-
-        val graph = DriveUi.card(this)
-        graph.addView(DriveUi.label(this, "Speed"))
-        graph.addView(SpeedGraph(this).apply { set(points) }, params(12f))
-        column.addView(graph)
 
         if (t.endAt != null) {
             column.addView(TextView(this).apply {
