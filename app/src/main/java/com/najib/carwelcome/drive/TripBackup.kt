@@ -205,7 +205,7 @@ object TripBackup {
                                     else -> r.skipValue()
                                 }
                                 r.endObject()
-                                if (f.at > 0 && f.litres > 0) fdb.import(f)
+                                if (f.at > 0 && f.litres > 0) fdb.importFillUp(f)
                             }
                             r.endArray()
                         }

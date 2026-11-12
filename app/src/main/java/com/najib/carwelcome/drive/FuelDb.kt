@@ -58,7 +58,7 @@ class FuelDb private constructor(context: Context) :
     fun all(): List<FillUp> = query(null, null)
 
     /** Adds a fill-up from a backup unless one at the same moment is already here. */
-    fun import(f: FillUp): Boolean {
+    fun importFillUp(f: FillUp): Boolean {
         readableDatabase.rawQuery("SELECT 1 FROM fillups WHERE at = ?", arrayOf(f.at.toString())).use { if (it.moveToFirst()) return false }
         f.id = 0
         save(f)
