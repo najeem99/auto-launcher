@@ -21,7 +21,7 @@ jobs:
         run: python3 tools/fuel_prices.py fuel-prices.json
       - name: Test the Global Petrol Prices fallback
         if: github.event_name == 'push'
-        run: python3 -c "import sys; sys.path.insert(0,'tools'); import fuel_prices as f, datetime as d; t=d.date.today(); print('GPP:', f.from_global_petrol_prices(t.year, t.month))"
+        run: python3 -c "import sys; sys.path.insert(0,'tools'); import fuel_prices as f, datetime as d; t=d.date.today(); print('GPP:', f.from_global_petrol_prices(t.year, t.month)); import re; [print(k, [x[:300] for x in re.findall(r'The current.{0,250}', f.text(f.get('https://www.globalpetrolprices.com/United-Arab-Emirates/%s_prices/' % k)))[:2]]) for k in ('gasoline','diesel')]"
       - name: Commit if changed
         if: github.event_name != 'push'
         run: |
