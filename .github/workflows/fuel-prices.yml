@@ -1,0 +1,11 @@
+name: Fuel prices probe
+on:
+  push:
+    branches: ['claude/project-thread-ajkyms']
+    paths: ['tools/**', '.github/workflows/fuel-prices.yml']
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/probe.py
