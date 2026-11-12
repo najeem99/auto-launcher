@@ -1,0 +1,21 @@
+{
+  "months": {
+    "2026-10": {
+      "super98": 4.4,
+      "special95": 4.28,
+      "eplus91": 4.21,
+      "diesel": 4.8,
+      "source": "Emirates 24|7",
+      "url": "https://www.emirates247.com/uae/uae-fuel-prices-for-november-2026-announced/7306"
+    },
+    "2026-11": {
+      "super98": 4.16,
+      "special95": 4.04,
+      "eplus91": 3.97,
+      "diesel": 4.75,
+      "source": "Khaleej Times",
+      "url": "https://www.khaleejtimes.com/business/energy/uae-petrol-diesel-prices-november-2026-announced"
+    }
+  },
+  "updated": "2026-11-12T03:39:41Z"
+}

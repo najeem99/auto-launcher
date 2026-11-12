@@ -1,0 +1,26 @@
+name: UAE fuel prices
+
+# Keeps fuel-prices.json current. The app downloads that file to price fill-ups and trips.
+# New prices are announced on the last day of each month.
+on:
+  schedule:
+    - cron: '30 */6 * * *'   # every 6 hours; it only commits when the prices change
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch prices
+        run: python3 tools/fuel_prices.py fuel-prices.json
+      - name: Commit if changed
+        run: |
+          if git diff --quiet fuel-prices.json; then echo "No change"; exit 0; fi
+          git config user.name "fuel-prices-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update UAE fuel prices" fuel-prices.json
+          git push

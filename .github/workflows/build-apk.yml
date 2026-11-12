@@ -3,6 +3,8 @@ name: Build APK
 on:
   push:
     branches: ['**']
+    # The monthly price update doesn't change the app.
+    paths-ignore: ['fuel-prices.json', 'tools/**']
   pull_request:
   workflow_dispatch:
 

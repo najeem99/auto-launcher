@@ -26,6 +26,7 @@ import androidx.car.app.connection.CarConnection
 import com.najib.carwelcome.drive.DriveUi
 import com.najib.carwelcome.drive.DriveUi.dp
 import com.najib.carwelcome.drive.Fuel
+import com.najib.carwelcome.drive.FuelSection
 import com.najib.carwelcome.drive.KmChart
 import com.najib.carwelcome.drive.TimeBar
 import com.najib.carwelcome.drive.Trip
@@ -93,6 +94,7 @@ class HomeActivity : AppCompatActivity() {
     private lateinit var nextButton: TextView
     private lateinit var summary: LinearLayout
     private lateinit var tripList: LinearLayout
+    private lateinit var fuel: FuelSection
 
     private val onTrip: () -> Unit = { main.post { refreshLive() } }
     private val clock = object : Runnable {
@@ -124,6 +126,8 @@ class HomeActivity : AppCompatActivity() {
         column.addView(statsHeader())
         summary = DriveUi.card(this)
         column.addView(summary)
+        fuel = FuelSection(this) { loadStats() }
+        column.addView(fuel.view)
         column.addView(DriveUi.label(this, "Trips · tap one for the details").apply { setPadding(dp(context, 4f), dp(context, 22f), 0, 0) })
         tripList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         column.addView(tripList)
@@ -152,6 +156,7 @@ class HomeActivity : AppCompatActivity() {
         TripRecorder.addListener(onTrip)
         main.post(clock)
         refreshLive()
+        fuel.onResume()
         loadStats()
     }
 
@@ -432,6 +437,7 @@ class HomeActivity : AppCompatActivity() {
                 val live = TripRecorder.current
                 val list = trips.map { if (live != null && it.id == live.id) live.copy() else it }
                 showSummary(p, start, end, list)
+                fuel.show(periodName(p, start, end), start, end, list)
                 showTrips(p, list)
             }
         }
@@ -520,7 +526,7 @@ class HomeActivity : AppCompatActivity() {
                 "${DriveUi.emoji(tot.waitShare)} ${(tot.waitShare * 100).toInt()}% · ${DriveUi.waitWord(tot.waitShare)}"),
             DriveUi.stat(this, "Average speed", DriveUi.kmh(avg), sub = "while moving"),
             DriveUi.stat(this, "Top speed", DriveUi.kmh(top)),
-            DriveUi.stat(this, "Petrol (rough)", "%.1f L".format(litres), DriveUi.sand, "≈ AED %.0f".format(litres * tripPrefs.fuelPrice)),
+            DriveUi.stat(this, "Petrol (rough)", "%.1f L".format(litres), DriveUi.sand, "≈ AED %.0f".format(trips.sumOf { Fuel.cost(this, it, rated) })),
             DriveUi.stat(this, "Real economy", if (real > 0) "%.1f km/L".format(real) else "–", sub = "rated %.0f km/L".format(rated)),
         )), rowParams(14f))
     }
@@ -615,8 +621,7 @@ class HomeActivity : AppCompatActivity() {
         addView(DriveUi.text(context, "Uses GPS once a second only while Android Auto is connected (the phone is usually charging then). Turn it off if the phone runs hot or slow; your saved trips stay.", 12f, DriveUi.ink3)
             .apply { setPadding(0, dp(context, 6f), 0, 0) })
         addView(numberField("Rated fuel economy (km per litre)", tripPrefs.ratedKmpl) { tripPrefs.ratedKmpl = it; loadStats() }, rowParams(14f))
-        addView(numberField("Petrol price (AED per litre)", tripPrefs.fuelPrice) { tripPrefs.fuelPrice = it; loadStats() }, rowParams(10f))
-        addView(DriveUi.text(context, "Petrol is a rough estimate: real driving gets about 85% of the rated figure, slow traffic about 55%, and idling burns about 0.6 L an hour.", 12f, DriveUi.ink3)
+        addView(DriveUi.text(context, "Petrol is a rough estimate: real driving gets about 85% of the rated figure, slow traffic about 55%, and idling burns about 0.6 L an hour. Each trip is priced with that month's UAE price for your grade (see Fuel above).", 12f, DriveUi.ink3)
             .apply { setPadding(0, dp(context, 8f), 0, 0) })
         addView(DriveUi.label(context, "Backup").apply { setPadding(0, dp(context, 22f), 0, 0) })
         backupStatus = DriveUi.text(context, "", 13f, DriveUi.ink2)

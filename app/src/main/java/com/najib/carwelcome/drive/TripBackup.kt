@@ -117,7 +117,21 @@ object TripBackup {
             w.name("settings").beginObject()
                 .name("ratedKmpl").value(prefs.ratedKmpl.toDouble())
                 .name("fuelPrice").value(prefs.fuelPrice.toDouble())
+                .name("fuelGrade").value(FuelPrices.grade(context).key)
+                .name("fuelPriceEdits").value(FuelPrices.editsJson(context))
                 .endObject()
+            w.name("fillUps").beginArray()
+            FuelDb.get(context).all().forEach { f ->
+                w.beginObject()
+                w.name("at").value(f.at)
+                w.name("litres").value(f.litres)
+                w.name("aed").value(f.aed)
+                f.odometerKm?.let { w.name("odometerKm").value(it) }
+                w.name("full").value(f.full)
+                w.name("grade").value(f.grade.key)
+                w.endObject()
+            }
+            w.endArray()
             w.name("trips").beginArray()
             trips.forEach { t ->
                 w.beginObject()
@@ -169,9 +183,31 @@ object TripBackup {
                             while (r.hasNext()) when (r.nextName()) {
                                 "ratedKmpl" -> r.nextDouble().toFloat().takeIf { it > 0 }?.let { prefs.ratedKmpl = it }
                                 "fuelPrice" -> r.nextDouble().toFloat().takeIf { it > 0 }?.let { prefs.fuelPrice = it }
+                                "fuelGrade" -> FuelPrices.setGrade(context, Grade.of(r.nextString()))
+                                "fuelPriceEdits" -> FuelPrices.restoreEdits(context, r.nextString())
                                 else -> r.skipValue()
                             }
                             r.endObject()
+                        }
+                        "fillUps" -> {
+                            val fdb = FuelDb.get(context)
+                            r.beginArray()
+                            while (r.hasNext()) {
+                                val f = FillUp()
+                                r.beginObject()
+                                while (r.hasNext()) when (r.nextName()) {
+                                    "at" -> f.at = r.nextLong()
+                                    "litres" -> f.litres = r.nextDouble()
+                                    "aed" -> f.aed = r.nextDouble()
+                                    "odometerKm" -> f.odometerKm = r.nextDouble()
+                                    "full" -> f.full = r.nextBoolean()
+                                    "grade" -> f.grade = Grade.of(r.nextString())
+                                    else -> r.skipValue()
+                                }
+                                r.endObject()
+                                if (f.at > 0 && f.litres > 0) fdb.importFillUp(f)
+                            }
+                            r.endArray()
                         }
                         "trips" -> {
                             r.beginArray()
