@@ -16,9 +16,9 @@ class TripPrefs(context: Context) {
         get() = sp.getFloat("rated_kmpl", 22f)
         set(v) = sp.edit().putFloat("rated_kmpl", v).apply()
 
-    /** Petrol price per litre (AED), for the rough cost. */
+    /** Fallback petrol price per litre (AED), only used if no monthly price is known. See [FuelPrices]. */
     var fuelPrice: Float
-        get() = sp.getFloat("fuel_price", 2.70f)
+        get() = sp.getFloat("fuel_price", 4.04f)
         set(v) = sp.edit().putFloat("fuel_price", v).apply()
 }
 
@@ -43,6 +43,10 @@ object Fuel {
         val idleH = t.idleMs / 3_600_000.0
         return movingKm / (rated * MOVING_FACTOR) + slowKm / (rated * SLOW_FACTOR) + idleH * IDLE_LPH
     }
+
+    /** Rough cost in AED, priced with the month the trip was in. */
+    fun cost(context: Context, t: Trip, ratedKmpl: Float): Double =
+        litres(t, ratedKmpl) * FuelPrices.price(context, t.startAt)
 
     /** Real-world km per litre for these trips, or 0 if too little data. */
     fun kmpl(distanceM: Double, litres: Double): Double =

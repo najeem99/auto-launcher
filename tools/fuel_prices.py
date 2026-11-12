@@ -79,7 +79,7 @@ def from_khaleej_times(year, month):
 def from_global_petrol_prices(year, month):
     def current(kind):
         t = text(get(f"https://www.globalpetrolprices.com/United-Arab-Emirates/{kind}_prices/"))
-        m = re.search(r"current \w+ price in the United Arab Emirates is AED (\d+\.\d{2}) per liter.{0,80}?updated on (\d\d-\w{3}-\d{4})", t)
+        m = re.search(r"The current [\w ]{0,30}? in the United Arab Emirates is AED (\d+\.\d{2}) per liter.{0,80}?(\d\d-\w{3}-\d{4})", t)
         if not m:
             return None, None
         return float(m.group(1)), dt.datetime.strptime(m.group(2), "%d-%b-%Y").date()

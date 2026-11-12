@@ -99,7 +99,7 @@ class TripActivity : AppCompatActivity() {
             DriveUi.stat(this, "Slow traffic", DriveUi.duration(t.slowMs), DriveUi.orange, "5–20 km/h"),
             DriveUi.stat(this, "Standing", DriveUi.duration(t.idleMs), DriveUi.red, "under 5 km/h"),
             DriveUi.stat(this, "No signal", DriveUi.duration(t.noSignalMs), sub = "tunnels, GPS lost"),
-            DriveUi.stat(this, "Petrol (rough)", "%.2f L".format(litres), DriveUi.sand, "≈ AED %.2f".format(litres * prefs.fuelPrice)),
+            DriveUi.stat(this, "Petrol (rough)", "%.2f L".format(litres), DriveUi.sand, "≈ AED %.2f".format(litres * FuelPrices.price(this, t.startAt))),
             DriveUi.stat(this, "Real economy", if (real > 0) "%.1f km/L".format(real) else "–", sub = "rated %.0f km/L".format(prefs.ratedKmpl)),
         )), params(12f))
         stats.addView(DriveUi.text(this, if (t.carSpeed) "Speed from the car's own speedometer." else "Speed from the phone's GPS.", 12f, DriveUi.ink3)
@@ -163,7 +163,9 @@ class TripActivity : AppCompatActivity() {
         line("Petrol, driving", "%.1f km ÷ (%.0f × 0.85)".format(otherKm, rated))
         line("Petrol, slow traffic", "%.1f km ÷ (%.0f × 0.55)".format(t.slowDistM / 1000, rated))
         line("Petrol, standing", "${d(t.idleMs)} × 0.6 L/h")
-        line("Petrol total (rough)", "%.2f L ≈ AED %.2f".format(litres, litres * prefs.fuelPrice), DriveUi.sand, bold = true)
+        line("Petrol price", "AED %.2f a litre · %s, %s".format(FuelPrices.price(this, t.startAt), FuelPrices.grade(this).title,
+            FuelPrices.monthName(FuelPrices.monthKey(t.startAt))))
+        line("Petrol total (rough)", "%.2f L ≈ AED %.2f".format(litres, litres * FuelPrices.price(this, t.startAt)), DriveUi.sand, bold = true)
         return c
     }
 
