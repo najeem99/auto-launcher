@@ -1,24 +1,15 @@
-import re, urllib.request, html as H
+import re, urllib.request
 UA = {"User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36", "Accept-Language": "en"}
-def get(u):
-    return urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=25).read().decode("utf-8","replace")
-def tx(h): return re.sub(r"\s+"," ",re.sub(r"<[^>]+>"," ",h))
-try:
-    h = get("https://www.globalpetrolprices.com/United-Arab-Emirates/gasoline_prices/")
-    t = tx(h)
-    for k in ["Octane","octane","current","The price of","per liter"]:
-        for m in list(re.finditer(k,t))[:3]: print("GPP:", t[max(0,m.start()-200):m.start()+200])
-except Exception as e: print("GPP fail", e)
-try:
-    print("EMARAT:", get("https://www.emarat.ae/en/fuel-prices")[:3800])
-except Exception as e: print("emarat fail", e)
-for u in ["https://www.adnocdistribution.ae/en/fuel-price","https://www.adnocdistribution.ae/en/","https://www.adnocdistribution.ae/","https://www.emarat.ae/fuel-prices/","https://www.emarat.ae/en/","https://www.enoc.com/"]:
+def get(u): return urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=25).read().decode("utf-8","replace")
+def tx(h): return re.sub(r"\s+"," ",re.sub(r"<[^>]+>"," ",re.sub(r"(?s)<script.*?</script>|<style.*?</style>","",h)))
+for u in ["https://www.adnocdistribution.ae/en/",
+ "https://www.khaleejtimes.com/business/energy/uae-petrol-diesel-prices-november-2026-announced",
+ "https://www.khaleejtimes.com/energy/uae-petrol-diesel-prices-november-2026-announced",
+ "https://www.khaleejtimes.com/business/energy/uae-petrol-diesel-prices-october-2026-announced",
+ "https://www.wam.ae/a/17i2n96",
+ "https://www.emirates247.com/uae/uae-fuel-prices-for-november-2026-announced/7306",
+ "https://www.globalpetrolprices.com/United-Arab-Emirates/diesel_prices/"]:
     try:
         h=get(u); t=tx(h); print("==",u,len(h))
-        for m in list(re.finditer(r"(?i)fuel[- ]?price",h))[:5]: print("   ", h[max(0,m.start()-120):m.start()+120].replace("\n"," "))
+        for m in list(re.finditer(r"(?i)super\s*98|current diesel price",t))[:3]: print("   ", t[max(0,m.start()-100):m.start()+260])
     except Exception as e: print("==",u,"FAIL",e)
-try:
-    r = get("https://news.google.com/rss/search?q=UAE+petrol+prices+November+2026&hl=en-AE&gl=AE&ceid=AE:en")
-    for t in re.findall(r"<title>(.*?)</title>", r)[:25]: print("GN:", H.unescape(t))
-    for d in re.findall(r"<description>(.*?)</description>", r)[:3]: print("GND:", H.unescape(d)[:400])
-except Exception as e: print("gn fail", e)
