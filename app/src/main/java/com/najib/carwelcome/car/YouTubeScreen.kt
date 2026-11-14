@@ -16,12 +16,8 @@ import androidx.lifecycle.LifecycleOwner
 import com.najib.carwelcome.R
 import com.najib.carwelcome.Welcome
 
-/** YouTube inside the dashboard. Plays only while the car is parked. */
-/**
- * [hostSaysParked]: opened from the dashboard's YouTube button, which Android Auto
- * only lets through while parked, so the video starts unlocked.
- */
-class YouTubeScreen(carContext: CarContext, hostSaysParked: Boolean = false) : Screen(carContext) {
+/** YouTube inside the dashboard. Plays only while the car is parked (or in test mode). */
+class YouTubeScreen(carContext: CarContext) : Screen(carContext) {
 
     private val parked = ParkedDetector(carContext)
     private val layer = YouTubeLayer(carContext, YouTubeLayer.HOME, parked)
@@ -32,7 +28,7 @@ class YouTubeScreen(carContext: CarContext, hostSaysParked: Boolean = false) : S
     }
 
     init {
-        parked.forcedParked = hostSaysParked || ParkedDetector.manualParked
+        parked.forcedParked = ParkedDetector.manualParked
         carContext.onBackPressedDispatcher.addCallback(this, backFromFullScreen)
         layer.onFullScreenChanged = {
             backFromFullScreen.isEnabled = layer.fullScreen
@@ -45,6 +41,9 @@ class YouTubeScreen(carContext: CarContext, hostSaysParked: Boolean = false) : S
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 parked.start()
+                if (parked.testMode()) {
+                    CarToast.makeText(carContext, "Test mode: YouTube plays while driving", CarToast.LENGTH_LONG).show()
+                }
                 SurfaceHub.show(layer)
             }
             override fun onStop(owner: LifecycleOwner) {

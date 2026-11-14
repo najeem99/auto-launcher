@@ -69,6 +69,14 @@ class Prefs(context: Context) {
         get() = sp.getString("checkin_last", "").orEmpty()
         set(v) = sp.edit().putString("checkin_last", v).apply()
 
+    /**
+     * Testing only: YouTube plays in the car even while driving. Off by default, and
+     * not something to leave on.
+     */
+    var youTubeWhileDriving: Boolean
+        get() = sp.getBoolean("yt_while_driving", false)
+        set(v) = sp.edit().putBoolean("yt_while_driving", v).apply()
+
     companion object {
         const val DEFAULT_NAME = "Najeem"
         const val DEFAULT_CHECKIN_URL = "https://alfardan.darwinbox.com/"

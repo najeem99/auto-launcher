@@ -16,6 +16,7 @@ import androidx.car.app.hardware.common.CarValue
 import androidx.car.app.hardware.common.OnCarDataAvailableListener
 import androidx.car.app.hardware.info.Speed
 import androidx.core.content.ContextCompat
+import com.najib.carwelcome.Prefs
 import kotlin.math.abs
 
 /**
@@ -45,7 +46,11 @@ class ParkedDetector(private val carContext: CarContext) {
 
     private val gpsListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            if (location.hasSpeed()) {
+            // A poor fix (indoor parking, between tall buildings) can report several m/s
+            // while standing still, which used to pause the video in a parked car.
+            val poorFix = location.hasAccuracy() && location.accuracy > 30f
+            val poorSpeed = location.hasSpeedAccuracy() && location.speedAccuracyMetersPerSecond > 2.5f
+            if (location.hasSpeed() && !poorFix && !poorSpeed) {
                 gpsSpeed = location.speed
                 gpsAt = SystemClock.elapsedRealtime()
             }
@@ -101,20 +106,40 @@ class ParkedDetector(private val carContext: CarContext) {
     }
 
     /**
+     * The fresh speed readings to judge by. The car's own speed is trusted over GPS:
+     * when the head unit shares it, GPS jitter is ignored.
+     */
+    private fun readings(now: Long): List<Float> = when {
+        now - carAt < FRESH_MS -> listOf(carSpeed)
+        now - gpsAt < FRESH_MS -> listOf(gpsSpeed)
+        else -> emptyList()
+    }
+
+    /** "Testing: let YouTube play while driving" is on in the phone app. */
+    fun testMode(): Boolean = runCatching { Prefs(carContext).youTubeWhileDriving }.getOrDefault(false)
+
+    /**
      * Lenient: the car counts as parked unless a fresh speed reading has shown it
      * moving for 2 seconds. With no readings at all (many head units share none)
-     * the video is allowed.
+     * the video is allowed. Always parked in test mode.
      */
     fun state(): State {
+        if (testMode()) { movingSince = 0L; return State.PARKED }
         val now = SystemClock.elapsedRealtime()
-        val readings = buildList {
-            if (now - carAt < FRESH_MS) add(carSpeed)
-            if (now - gpsAt < FRESH_MS) add(gpsSpeed)
-        }
         val limit = if (forcedParked) FORCED_MOVING_MPS else MOVING_MPS
-        if (readings.none { it > limit }) { movingSince = 0L; return State.PARKED }
+        if (readings(now).none { it > limit }) { movingSince = 0L; return State.PARKED }
         if (movingSince == 0L) movingSince = now
         return if (now - movingSince >= SETTLE_MS) State.MOVING else State.PARKED
+    }
+
+    /** What the pause is based on, for the notice: "car speed 32 km/h" or "GPS speed 14 km/h". */
+    fun reason(): String {
+        val now = SystemClock.elapsedRealtime()
+        return when {
+            now - carAt < FRESH_MS -> "car speed ${(carSpeed * 3.6f).toInt()} km/h"
+            now - gpsAt < FRESH_MS -> "GPS speed ${(gpsSpeed * 3.6f).toInt()} km/h"
+            else -> "no speed reading"
+        }
     }
 
     companion object {
