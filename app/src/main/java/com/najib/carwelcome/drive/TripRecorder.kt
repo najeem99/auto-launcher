@@ -338,7 +338,11 @@ object TripRecorder {
         val now = System.currentTimeMillis()
         if (!force && now - pointStart < POINT_EVERY_MS) return
         if (pointCount > 0) {
-            val p = SpeedPoint(pointStart + (now - pointStart) / 2, (pointSum / pointCount).toFloat())
+            // Where the car was: the latest good GPS fix, if it's recent.
+            val fix = DriveSensors.lastFix?.takeIf {
+                it.accuracy <= 50f && SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos < 10_000_000_000L
+            }
+            val p = SpeedPoint(pointStart + (now - pointStart) / 2, (pointSum / pointCount).toFloat(), fix?.latitude, fix?.longitude)
             app?.let { ctx -> runCatching { TripDb.get(ctx).addPoint(trip.id, p) } }
         }
         pointStart = now

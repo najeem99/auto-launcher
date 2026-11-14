@@ -68,6 +68,11 @@
             android:exported="false"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
 
+        <activity
+            android:name=".drive.PlacesActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
+
         <service
             android:name=".drive.TripService"
             android:exported="false"

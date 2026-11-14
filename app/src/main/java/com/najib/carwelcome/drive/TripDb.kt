@@ -48,11 +48,15 @@ data class Trip(
     }
 }
 
-/** Speed (km/h) averaged over each 15 s of a trip, for the graph. */
-data class SpeedPoint(val at: Long, val kmh: Float)
+/**
+ * Speed (km/h) averaged over each 5 s of a trip, for the graph, and where the car was
+ * at that moment ([lat]/[lon], null for trips recorded before positions were kept or
+ * without a GPS fix). Positions never leave the phone except in the user's own backup.
+ */
+data class SpeedPoint(val at: Long, val kmh: Float, val lat: Double? = null, val lon: Double? = null)
 
 class TripDb private constructor(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, "trips.db", null, 1) {
+    SQLiteOpenHelper(context.applicationContext, "trips.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -78,13 +82,62 @@ class TripDb private constructor(context: Context) :
             """CREATE TABLE speed_points (
                 trip_id INTEGER NOT NULL,
                 at INTEGER NOT NULL,
-                kmh REAL NOT NULL
+                kmh REAL NOT NULL,
+                lat REAL,
+                lon REAL
             )"""
         )
         db.execSQL("CREATE INDEX points_trip ON speed_points(trip_id)")
+        createNames(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            // Version 2: where the car was, for the places and roads page.
+            db.execSQL("ALTER TABLE speed_points ADD COLUMN lat REAL")
+            db.execSQL("ALTER TABLE speed_points ADD COLUMN lon REAL")
+            createNames(db)
+        }
+    }
+
+    /** Street names looked up once per spot and kept, so the phone doesn't ask again. */
+    private fun createNames(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS place_names (key TEXT PRIMARY KEY, road TEXT, area TEXT)")
+    }
+
+    fun cachedName(key: String): Pair<String?, String?>? =
+        readableDatabase.rawQuery("SELECT road, area FROM place_names WHERE key = ?", arrayOf(key)).use { c ->
+            if (c.moveToFirst()) (if (c.isNull(0)) null else c.getString(0)) to (if (c.isNull(1)) null else c.getString(1)) else null
+        }
+
+    fun allCachedNames(): Map<String, Pair<String?, String?>> {
+        val out = HashMap<String, Pair<String?, String?>>()
+        readableDatabase.rawQuery("SELECT key, road, area FROM place_names", null).use { c ->
+            while (c.moveToNext()) out[c.getString(0)] = (if (c.isNull(1)) null else c.getString(1)) to (if (c.isNull(2)) null else c.getString(2))
+        }
+        return out
+    }
+
+    fun saveName(key: String, road: String?, area: String?) {
+        writableDatabase.insertWithOnConflict("place_names", null, ContentValues().apply {
+            put("key", key); put("road", road); put("area", area)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    /** Every point with a position from trips that started at or after [fromMs], by trip then time. */
+    fun geoPoints(fromMs: Long): Map<Long, List<SpeedPoint>> {
+        val out = LinkedHashMap<Long, MutableList<SpeedPoint>>()
+        readableDatabase.rawQuery(
+            """SELECT p.trip_id, p.at, p.kmh, p.lat, p.lon FROM speed_points p JOIN trips t ON t.id = p.trip_id
+               WHERE t.start_at >= ? AND p.lat IS NOT NULL ORDER BY p.trip_id, p.at""",
+            arrayOf(fromMs.toString()),
+        ).use { c ->
+            while (c.moveToNext()) {
+                out.getOrPut(c.getLong(0)) { mutableListOf() } += SpeedPoint(c.getLong(1), c.getFloat(2), c.getDouble(3), c.getDouble(4))
+            }
+        }
+        return out
+    }
 
     fun insert(t: Trip): Long {
         t.id = writableDatabase.insert("trips", null, values(t))
@@ -96,9 +149,12 @@ class TripDb private constructor(context: Context) :
     }
 
     fun addPoint(tripId: Long, p: SpeedPoint) {
-        writableDatabase.insert("speed_points", null, ContentValues().apply {
-            put("trip_id", tripId); put("at", p.at); put("kmh", p.kmh)
-        })
+        writableDatabase.insert("speed_points", null, pointValues(tripId, p))
+    }
+
+    private fun pointValues(tripId: Long, p: SpeedPoint) = ContentValues().apply {
+        put("trip_id", tripId); put("at", p.at); put("kmh", p.kmh)
+        if (p.lat != null && p.lon != null) { put("lat", p.lat); put("lon", p.lon) }
     }
 
     fun deletePointsAfter(tripId: Long, at: Long) {
@@ -124,7 +180,7 @@ class TripDb private constructor(context: Context) :
             t.id = 0
             val id = db.insert("trips", null, values(t))
             points.forEach { p ->
-                db.insert("speed_points", null, ContentValues().apply { put("trip_id", id); put("at", p.at); put("kmh", p.kmh) })
+                db.insert("speed_points", null, pointValues(id, p))
             }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
@@ -160,8 +216,9 @@ class TripDb private constructor(context: Context) :
 
     fun points(tripId: Long): List<SpeedPoint> {
         val out = mutableListOf<SpeedPoint>()
-        readableDatabase.query("speed_points", arrayOf("at", "kmh"), "trip_id = ?", arrayOf(tripId.toString()), null, null, "at").use { c ->
-            while (c.moveToNext()) out += SpeedPoint(c.getLong(0), c.getFloat(1))
+        readableDatabase.query("speed_points", arrayOf("at", "kmh", "lat", "lon"), "trip_id = ?", arrayOf(tripId.toString()), null, null, "at").use { c ->
+            while (c.moveToNext()) out += SpeedPoint(c.getLong(0), c.getFloat(1),
+                if (c.isNull(2)) null else c.getDouble(2), if (c.isNull(3)) null else c.getDouble(3))
         }
         return out
     }
