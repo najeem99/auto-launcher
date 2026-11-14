@@ -83,6 +83,7 @@ class TripActivity : AppCompatActivity() {
         graph.addView(DriveUi.text(this, "High = fast, low = slow traffic or stopped. Drag across the graph to see the speed at any moment.", 12f, DriveUi.ink3)
             .apply { setPadding(0, dp(context, 10f), 0, 0) })
         column.addView(graph)
+        if (points.count { it.lat != null } >= 2) column.addView(whereCard(t, points))
 
         val prefs = TripPrefs(this)
         val litres = Fuel.litres(t, prefs.ratedKmpl)
@@ -126,6 +127,70 @@ class TripActivity : AppCompatActivity() {
                 }
             }, params(20f))
         }
+    }
+
+    /**
+     * The longest stops on this trip (and how often you stand at the same spot), and the
+     * roads the time went on. Filled in from a background thread.
+     */
+    private fun whereCard(t: Trip, points: List<SpeedPoint>): LinearLayout {
+        val c = DriveUi.card(this)
+        c.addView(DriveUi.label(this, "Where the time went"))
+        val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        inner.addView(DriveUi.text(this, "Working it out…", 13f, DriveUi.ink3).apply { setPadding(0, dp(context, 10f), 0, 0) })
+        c.addView(inner)
+        val ctx = applicationContext
+        thread {
+            val names = PlaceNames(ctx)
+            val db = TripDb.get(ctx)
+            val mine = PlaceStats.analyse(listOf(t), mapOf(t.id to points))
+            val from = System.currentTimeMillis() - 30 * 86_400_000L
+            val all = runCatching { PlaceStats.analyse(db.tripsSince(from), db.geoPoints(from)) }.getOrNull()
+            val stops = mine.stopsByTrip[t.id].orEmpty().sortedByDescending { it.ms }.take(5)
+            stops.forEach { names.lookUp(names.spotKey(it.lat, it.lon), it.lat, it.lon) }
+            mine.cells.sortedByDescending { it.ms }.take(120).forEach { names.lookUp(it.key, it.lat, it.lon) }
+            val roads = mine.roads { names.roadOf(it) }.first.take(5)
+            main.post {
+                if (isFinishing) return@post
+                inner.removeAllViews()
+                if (stops.isEmpty() && roads.isEmpty()) {
+                    inner.addView(DriveUi.text(this, "No stops of 10 s or more on this trip.", 14f, DriveUi.ink2).apply { setPadding(0, dp(context, 10f), 0, 0) })
+                    return@post
+                }
+                if (stops.isNotEmpty()) {
+                    inner.addView(DriveUi.text(this, "Longest stops", 13f, DriveUi.ink2, "bold").apply { setPadding(0, dp(context, 12f), 0, 0) })
+                    val max = stops.first().ms.toFloat()
+                    stops.forEach { s ->
+                        // Same spot across the last 30 days.
+                        val spot = all?.spots?.firstOrNull { PlaceStats.distM(it.lat, it.lon, s.lat, s.lon) <= PlaceStats.SPOT_RADIUS_M }
+                        val sub = if (spot != null && spot.count > 1)
+                            "At ${DriveUi.time(this, s.startAt)} · you've stood here ${spot.count} times in 30 days, ${DriveUi.duration(spot.totalMs)} in all"
+                        else "At ${DriveUi.time(this, s.startAt)}"
+                        inner.addView(PlacesUi.row(this, names.spotLabel(s.lat, s.lon), sub, DriveUi.duration(s.ms), DriveUi.red, s.ms / max, DriveUi.red) {
+                            val ll = String.format(java.util.Locale.ROOT, "%.6f,%.6f", s.lat, s.lon)
+                            runCatching { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("geo:$ll?q=$ll"))) }
+                        }, params(8f))
+                    }
+                }
+                if (roads.isNotEmpty()) {
+                    inner.addView(DriveUi.text(this, "Roads", 13f, DriveUi.ink2, "bold").apply { setPadding(0, dp(context, 16f), 0, 0) })
+                    val max = roads.first().ms.toFloat()
+                    roads.forEach { r ->
+                        val sub = "${(r.waitShare * 100).toInt()}% waiting · avg ${DriveUi.kmh(r.avgKmh)} · ${DriveUi.km(r.distM)}"
+                        inner.addView(PlacesUi.row(this, r.name, sub, DriveUi.duration(r.ms), DriveUi.ink, r.ms / max, DriveUi.teal, r.waitShare), params(8f))
+                    }
+                }
+                inner.addView(TextView(this).apply {
+                    text = "All places and signals  ›"
+                    textSize = 14f
+                    setTextColor(DriveUi.teal)
+                    typeface = DriveUi.font(context, "bold")
+                    setPadding(0, dp(context, 14f), 0, 0)
+                    setOnClickListener { startActivity(android.content.Intent(this@TripActivity, PlacesActivity::class.java)) }
+                })
+            }
+        }
+        return c
     }
 
     /** Shows how the waiting time, the mood, the average and the petrol were worked out. */
