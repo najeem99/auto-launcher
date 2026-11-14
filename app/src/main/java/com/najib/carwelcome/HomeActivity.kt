@@ -126,6 +126,7 @@ class HomeActivity : AppCompatActivity() {
         column.addView(statsHeader())
         summary = DriveUi.card(this)
         column.addView(summary)
+        column.addView(placesCard())
         fuel = FuelSection(this) { loadStats() }
         column.addView(fuel.view)
         column.addView(DriveUi.label(this, "Trips · tap one for the details").apply { setPadding(dp(context, 4f), dp(context, 22f), 0, 0) })
@@ -696,6 +697,19 @@ class HomeActivity : AppCompatActivity() {
             else -> "Saved to ${TripBackup.folderName(this)} · ${TripBackup.lastCount(this)} trips · ${DriveUi.day(at)} ${DriveUi.time(this, at)}"
         }
         backupStatus.setTextColor(if (set) DriveUi.ink2 else DriveUi.orange)
+    }
+
+    /** Entry to "Where your time goes": signals, roads, time to get home, time spent at places. */
+    private fun placesCard(): View = DriveUi.card(this).apply {
+        addView(DriveUi.label(context, "Where your time goes"))
+        addView(DriveUi.text(context, "Time at each signal, on each road, getting home, and at the places you stay.", 13f, DriveUi.ink2).apply {
+            setPadding(0, dp(context, 8f), 0, 0)
+        })
+        addView(row(
+            pillButton("Open places & signals", DriveUi.teal, DriveUi.night1) {
+                startActivity(Intent(context, com.najib.carwelcome.drive.PlacesActivity::class.java))
+            },
+        ), rowParams(12f))
     }
 
     // ---- Helpers ------------------------------------------------------------------------

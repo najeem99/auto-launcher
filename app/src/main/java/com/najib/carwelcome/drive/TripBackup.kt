@@ -148,7 +148,11 @@ object TripBackup {
                 w.name("stops").value(t.stops.toLong())
                 w.name("carSpeed").value(t.carSpeed)
                 w.name("points").beginArray()
-                db.points(t.id).forEach { p -> w.beginArray().value(p.at).value(p.kmh.toDouble()).endArray() }
+                db.points(t.id).forEach { p ->
+                    w.beginArray().value(p.at).value(p.kmh.toDouble())
+                    if (p.lat != null && p.lon != null) w.value(p.lat).value(p.lon)
+                    w.endArray()
+                }
                 w.endArray()
                 w.endObject()
             }
@@ -250,9 +254,11 @@ object TripBackup {
                         r.beginArray()
                         val at = r.nextLong()
                         val kmh = r.nextDouble().toFloat()
+                        val lat = if (r.hasNext()) r.nextDouble() else null
+                        val lon = if (r.hasNext()) r.nextDouble() else null
                         while (r.hasNext()) r.skipValue()
                         r.endArray()
-                        pts += SpeedPoint(at, kmh)
+                        pts += SpeedPoint(at, kmh, lat, lon?.takeIf { lat != null })
                     }
                     r.endArray()
                 }
