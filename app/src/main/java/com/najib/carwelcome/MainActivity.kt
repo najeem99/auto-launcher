@@ -132,6 +132,17 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        column.addView(heading("YouTube in the car"))
+        column.addView(label("YouTube plays while the car is stopped and pauses once it drives faster than about 10 km/h."))
+        column.addView(CheckBox(this).apply {
+            text = "TESTING ONLY: let YouTube play while driving"
+            isChecked = prefs.youTubeWhileDriving
+            setOnCheckedChangeListener { _, v ->
+                prefs.youTubeWhileDriving = v
+                if (v) toast("Test mode on. YouTube won't pause while driving. Turn this off after testing.")
+            }
+        })
+
         column.addView(heading("Prayer times"))
         column.addView(label("Worked out on this phone with the UAE method (no internet needed), for where you are, or Dubai when the location isn't known."))
         prayerList = label("")

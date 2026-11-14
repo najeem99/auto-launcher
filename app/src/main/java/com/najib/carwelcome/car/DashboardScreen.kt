@@ -11,7 +11,6 @@ import androidx.car.app.Screen
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.CarIcon
-import androidx.car.app.model.ParkedOnlyOnClickListener
 import androidx.car.app.model.Template
 import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.core.graphics.drawable.IconCompat
@@ -95,10 +94,10 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             .addAction(
                 Action.Builder()
                     .setIcon(icon(R.drawable.ic_video))
-                    // Android Auto itself only runs this tap while the car is parked (it
-                    // shows its own "not while driving" message otherwise), so YouTube
-                    // opens unlocked.
-                    .setOnClickListener(ParkedOnlyOnClickListener.create { openYouTube(hostSaysParked = true) })
+                    // A plain tap: Android Auto's own "parked" signal needs the handbrake on
+                    // (many head units never send it), so it blocked YouTube even in P.
+                    // The player checks the speed itself and pauses while driving.
+                    .setOnClickListener { openYouTube() }
                     .build()
             )
         return NavigationTemplate.Builder().setActionStrip(strip.build()).build()
@@ -117,7 +116,7 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             DashboardRenderer.Tile.MAP -> screenManager.push(PlacesScreen(carContext))
             DashboardRenderer.Tile.CLAUDE -> openClaude(carContext)
             DashboardRenderer.Tile.UTILITIES -> screenManager.push(UtilitiesScreen(carContext))
-            DashboardRenderer.Tile.YOUTUBE -> openYouTube(hostSaysParked = false)
+            DashboardRenderer.Tile.YOUTUBE -> openYouTube()
             DashboardRenderer.Tile.HOME -> PlacesScreen.navigateTo(carContext, "Home")
             DashboardRenderer.Tile.WORK -> PlacesScreen.navigateTo(carContext, "Work", "Office")
             DashboardRenderer.Tile.CHECKIN -> startCheckIn(carContext, renderer::draw)
@@ -125,8 +124,8 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     /** YouTube inside the dashboard; it only plays while the car is parked. */
-    private fun openYouTube(hostSaysParked: Boolean) {
-        screenManager.push(YouTubeScreen(carContext, hostSaysParked))
+    private fun openYouTube() {
+        screenManager.push(YouTubeScreen(carContext))
     }
 
     private fun icon(@DrawableRes res: Int) =
